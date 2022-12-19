@@ -14,7 +14,7 @@ func Start() {
 	server := &http.Server{
 		Addr: ":8080",
 	}
-	log.Printf("Server started")
+	log.Println("Server started")
 	log.Fatal(server.ListenAndServe())
 }
 
@@ -25,7 +25,7 @@ func short(writer http.ResponseWriter, req *http.Request) {
 			http.Error(writer, err.Error(), http.StatusBadRequest)
 			return
 		}
-		if body == nil || len(body) == 0 {
+		if len(body) == 0 {
 			http.Error(writer, "Request body is required", http.StatusBadRequest)
 			return
 		}
@@ -35,15 +35,15 @@ func short(writer http.ResponseWriter, req *http.Request) {
 		writer.WriteHeader(http.StatusCreated)
 		_, err = writer.Write([]byte(resp))
 		if err != nil {
-			log.Printf(err.Error())
+			log.Println(err.Error())
 		}
 	} else if req.Method == http.MethodGet {
-		strId := req.URL.Path[1:]
-		if strId == "" {
+		strID := req.URL.Path[1:]
+		if strID == "" {
 			http.Error(writer, "Url ID is required", http.StatusBadRequest)
 			return
 		}
-		id, err := strconv.Atoi(strId)
+		id, err := strconv.Atoi(strID)
 		if err != nil || id >= len(urls) {
 			http.Error(writer, "Wrong URL ID", http.StatusBadRequest)
 			return
