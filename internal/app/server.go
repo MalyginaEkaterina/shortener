@@ -9,10 +9,6 @@ import (
 
 func Start() {
 	urls := storage.Storage{}
-	http.HandleFunc("/", handlers.ShortHandler(urls))
-	server := &http.Server{
-		Addr: ":8080",
-	}
-	log.Println("Server started")
-	log.Fatal(server.ListenAndServe())
+	r := handlers.NewRouter(&urls)
+	log.Fatal(http.ListenAndServe(":8080", r))
 }

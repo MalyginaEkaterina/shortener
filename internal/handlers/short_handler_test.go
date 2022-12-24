@@ -11,67 +11,68 @@ import (
 	"testing"
 )
 
-func TestShortHandlerGet(t *testing.T) {
+func TestGetUrlById(t *testing.T) {
 	type want struct {
 		statusCode int
 		url        string
 	}
 	tests := []struct {
-		name    string
-		request string
-		urls    storage.Storage
-		want    want
+		name string
+		path string
+		urls storage.Storage
+		want want
 	}{
 		{
-			name:    "Positive test with correct url id",
-			request: "http://localhost:8080/1",
-			urls:    storage.Storage{Urls: []string{"http://test1.ru", "http://test2.ru", "http://test3.ru"}},
-			want:    want{307, "http://test2.ru"},
+			name: "Positive test with correct url id",
+			path: "/1",
+			urls: storage.Storage{Urls: []string{"http://test1.ru", "http://test2.ru", "http://test3.ru"}},
+			want: want{307, "http://test2.ru"},
 		},
 		{
-			name:    "Negative test with incorrect url id #1",
-			request: "http://localhost:8080/1",
-			urls:    storage.Storage{Urls: []string{"http://test1.ru"}},
-			want:    want{400, ""},
+			name: "Negative test with incorrect url id #1",
+			path: "/1",
+			urls: storage.Storage{Urls: []string{"http://test1.ru"}},
+			want: want{400, ""},
 		},
 		{
-			name:    "Negative test with incorrect url id #2",
-			request: "http://localhost:8080/abc",
-			urls:    storage.Storage{Urls: []string{"http://test1.ru"}},
-			want:    want{400, ""},
+			name: "Negative test with incorrect url id #2",
+			path: "/abc",
+			urls: storage.Storage{Urls: []string{"http://test1.ru"}},
+			want: want{400, ""},
 		},
 		{
-			name:    "Negative test with empty url id",
-			request: "http://localhost:8080/",
-			urls:    storage.Storage{Urls: []string{"http://test1.ru"}},
-			want:    want{400, ""},
+			name: "Negative test with empty url id",
+			path: "/",
+			urls: storage.Storage{Urls: []string{"http://test1.ru"}},
+			want: want{400, ""},
 		},
 		{
-			name:    "Negative test with empty url id #2",
-			request: "http://localhost:8080",
-			urls:    storage.Storage{Urls: []string{"http://test1.ru"}},
-			want:    want{400, ""},
+			name: "Negative test with empty url id #2",
+			path: "",
+			urls: storage.Storage{Urls: []string{"http://test1.ru"}},
+			want: want{400, ""},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			request := httptest.NewRequest(http.MethodGet, tt.request, nil)
-			w := httptest.NewRecorder()
-			h := ShortHandler(tt.urls)
-			h(w, request)
-			result := w.Result()
-			assert.Equal(t, tt.want.statusCode, result.StatusCode)
+			r := NewRouter(&tt.urls)
+			ts := httptest.NewServer(r)
+			defer ts.Close()
+
+			request := httptest.NewRequest(http.MethodGet, ts.URL+tt.path, nil)
+			resp := httptest.NewRecorder()
+			r.ServeHTTP(resp, request)
+
+			assert.Equal(t, tt.want.statusCode, resp.Code)
 			if tt.want.url != "" {
-				assert.Equal(t, tt.want.url, result.Header.Get("Location"))
+				assert.Equal(t, tt.want.url, resp.Header().Get("Location"))
 			}
-			err := result.Body.Close()
-			require.NoError(t, err)
 		})
 	}
 
 }
 
-func TestShortHandlerPost(t *testing.T) {
+func TestShortUrl(t *testing.T) {
 	type want struct {
 		statusCode int
 		url        string
@@ -79,54 +80,44 @@ func TestShortHandlerPost(t *testing.T) {
 	tests := []struct {
 		name    string
 		request string
-		method  string
 		urls    storage.Storage
 		want    want
 	}{
 		{
 			name:    "Positive test",
 			request: "http://test2.ru",
-			method:  http.MethodPost,
 			urls:    storage.Storage{Urls: []string{"http://test1.ru"}},
 			want:    want{201, "http://localhost:8080/1"},
 		},
 		{
 			name:    "Positive test with empty urls",
 			request: "http://test2.ru",
-			method:  http.MethodPost,
 			urls:    storage.Storage{},
 			want:    want{201, "http://localhost:8080/0"},
 		},
 		{
 			name:    "Negative test with empty request",
 			request: "",
-			method:  http.MethodPost,
-			urls:    storage.Storage{Urls: []string{"http://test1.ru"}},
-			want:    want{400, ""},
-		},
-		{
-			name:    "Negative test with incorrect method",
-			request: "http://test2.ru",
-			method:  http.MethodPut,
 			urls:    storage.Storage{Urls: []string{"http://test1.ru"}},
 			want:    want{400, ""},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			request := httptest.NewRequest(tt.method, "http://localhost:8080/", bytes.NewBufferString(tt.request))
-			w := httptest.NewRecorder()
-			h := ShortHandler(tt.urls)
-			h(w, request)
-			result := w.Result()
-			assert.Equal(t, tt.want.statusCode, result.StatusCode)
+			r := NewRouter(&tt.urls)
+			ts := httptest.NewServer(r)
+			defer ts.Close()
+
+			request := httptest.NewRequest(http.MethodPost, ts.URL+"/", bytes.NewBufferString(tt.request))
+			resp := httptest.NewRecorder()
+			r.ServeHTTP(resp, request)
+
+			assert.Equal(t, tt.want.statusCode, resp.Code)
 			if tt.want.url != "" {
-				resp, err := io.ReadAll(result.Body)
+				respBody, err := io.ReadAll(resp.Body)
 				require.NoError(t, err)
-				assert.Equal(t, tt.want.url, string(resp))
+				assert.Equal(t, tt.want.url, string(respBody))
 			}
-			err := result.Body.Close()
-			require.NoError(t, err)
 		})
 	}
 
