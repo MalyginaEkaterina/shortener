@@ -8,7 +8,7 @@ import (
 )
 
 func Start() {
-	urls := storage.Storage{}
-	r := handlers.NewRouter(&urls)
+	store := storage.MemoryStorage{}
+	r := handlers.NewRouter(&store)
 	log.Fatal(http.ListenAndServe(":8080", r))
 }

@@ -10,7 +10,7 @@ import (
 	"strconv"
 )
 
-func NewRouter(urls *storage.Storage) chi.Router {
+func NewRouter(store storage.Storage) chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
@@ -18,8 +18,8 @@ func NewRouter(urls *storage.Storage) chi.Router {
 	r.Use(middleware.Recoverer)
 
 	r.Route("/", func(r chi.Router) {
-		r.Post("/", ShortURL(urls))
-		r.Get("/{id}", GetURLByID(urls))
+		r.Post("/", ShortURL(store))
+		r.Get("/{id}", GetURLByID(store))
 	})
 
 	r.NotFound(func(writer http.ResponseWriter, request *http.Request) {
@@ -32,7 +32,7 @@ func NewRouter(urls *storage.Storage) chi.Router {
 	return r
 }
 
-func ShortURL(urls *storage.Storage) http.HandlerFunc {
+func ShortURL(store storage.Storage) http.HandlerFunc {
 	return func(writer http.ResponseWriter, req *http.Request) {
 		body, err := io.ReadAll(req.Body)
 		if err != nil {
@@ -43,30 +43,42 @@ func ShortURL(urls *storage.Storage) http.HandlerFunc {
 			http.Error(writer, "Request body is required", http.StatusBadRequest)
 			return
 		}
-		ind := urls.AddURL(string(body))
+		ind, err := store.AddURL(string(body))
+		if err != nil {
+			log.Println(err)
+			http.Error(writer, "Internal server error", http.StatusInternalServerError)
+			return
+		}
 		resp := "http://localhost:8080/" + strconv.Itoa(ind)
 		writer.Header().Set("content-type", "text/html; charset=UTF-8")
 		writer.WriteHeader(http.StatusCreated)
-		_, err = writer.Write([]byte(resp))
-		if err != nil {
-			log.Println(err.Error())
-		}
+		writer.Write([]byte(resp))
 	}
 }
 
-func GetURLByID(urls *storage.Storage) http.HandlerFunc {
+func GetURLByID(store storage.Storage) http.HandlerFunc {
 	return func(writer http.ResponseWriter, req *http.Request) {
-		idStr := chi.URLParam(req, "id")
-		if idStr == "" {
+		id := chi.URLParam(req, "id")
+		if id == "" {
 			http.Error(writer, "Url ID is required", http.StatusBadRequest)
 			return
 		}
-		id, err := strconv.Atoi(idStr)
-		if err != nil || !urls.ValidID(id) {
+		validID, err := store.ValidID(id)
+		if err != nil {
+			log.Println(err)
+			http.Error(writer, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		if !validID {
 			http.Error(writer, "Wrong URL ID", http.StatusBadRequest)
 			return
 		}
-		url := urls.GetURL(id)
+		url, err := store.GetURL(id)
+		if err != nil {
+			log.Println(err)
+			http.Error(writer, "Internal server error", http.StatusInternalServerError)
+			return
+		}
 		writer.Header().Set("Content-Type", "text/html; charset=UTF-8")
 		writer.Header().Set("Location", url)
 		writer.WriteHeader(http.StatusTemporaryRedirect)

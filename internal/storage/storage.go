@@ -1,18 +1,33 @@
 package storage
 
-type Storage struct {
+import "strconv"
+
+type Storage interface {
+	AddURL(url string) (int, error)
+	ValidID(id string) (bool, error)
+	GetURL(id string) (string, error)
+}
+
+type MemoryStorage struct {
 	Urls []string
 }
 
-func (s *Storage) AddURL(url string) int {
+var _ Storage = (*MemoryStorage)(nil)
+
+func (s *MemoryStorage) AddURL(url string) (int, error) {
 	s.Urls = append(s.Urls, url)
-	return len(s.Urls) - 1
+	return len(s.Urls) - 1, nil
 }
 
-func (s *Storage) ValidID(id int) bool {
-	return id >= 0 && id < len(s.Urls)
+func (s *MemoryStorage) ValidID(idStr string) (bool, error) {
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		return false, nil
+	}
+	return id >= 0 && id < len(s.Urls), nil
 }
 
-func (s *Storage) GetURL(id int) string {
-	return s.Urls[id]
+func (s *MemoryStorage) GetURL(idStr string) (string, error) {
+	id, err := strconv.Atoi(idStr)
+	return s.Urls[id], err
 }
