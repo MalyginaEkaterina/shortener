@@ -26,25 +26,19 @@ func TestGetUrlById(t *testing.T) {
 		{
 			name:  "Positive test with correct url id",
 			path:  "/1",
-			store: &mockStorage{validID: true, getURL: "http://test.ru"},
+			store: &mockStorage{getURL: "http://test.ru"},
 			want:  want{307, "http://test.ru"},
 		},
 		{
 			name:  "Negative test with incorrect url id #1",
 			path:  "/1",
-			store: &mockStorage{validID: false},
+			store: &mockStorage{getURLErr: storage.ErrNotFound},
 			want:  want{400, ""},
-		},
-		{
-			name:  "Negative test with validError",
-			path:  "/1",
-			store: &mockStorage{validIDErr: errors.New("negative test with validError")},
-			want:  want{500, ""},
 		},
 		{
 			name:  "Negative test with getURLError",
 			path:  "/1",
-			store: &mockStorage{validID: true, getURLErr: errors.New("negative test with getURLError")},
+			store: &mockStorage{getURLErr: errors.New("negative test with getURLError")},
 			want:  want{500, ""},
 		},
 		{
@@ -131,20 +125,14 @@ func TestShortUrl(t *testing.T) {
 }
 
 type mockStorage struct {
-	addURL     int
-	addURLErr  error
-	validID    bool
-	validIDErr error
-	getURL     string
-	getURLErr  error
+	addURL    int
+	addURLErr error
+	getURL    string
+	getURLErr error
 }
 
 func (s *mockStorage) AddURL(_ string) (int, error) {
 	return s.addURL, s.addURLErr
-}
-
-func (s *mockStorage) ValidID(_ string) (bool, error) {
-	return s.validID, s.validIDErr
 }
 
 func (s *mockStorage) GetURL(_ string) (string, error) {

@@ -1,10 +1,16 @@
 package storage
 
-import "strconv"
+import (
+	"errors"
+	"strconv"
+)
+
+var (
+	ErrNotFound = errors.New("not found")
+)
 
 type Storage interface {
 	AddURL(url string) (int, error)
-	ValidID(id string) (bool, error)
 	GetURL(id string) (string, error)
 }
 
@@ -19,15 +25,10 @@ func (s *MemoryStorage) AddURL(url string) (int, error) {
 	return len(s.Urls) - 1, nil
 }
 
-func (s *MemoryStorage) ValidID(idStr string) (bool, error) {
-	id, err := strconv.Atoi(idStr)
-	if err != nil {
-		return false, nil
-	}
-	return id >= 0 && id < len(s.Urls), nil
-}
-
 func (s *MemoryStorage) GetURL(idStr string) (string, error) {
 	id, err := strconv.Atoi(idStr)
+	if err != nil || id < 0 || id >= len(s.Urls) {
+		return "", ErrNotFound
+	}
 	return s.Urls[id], err
 }

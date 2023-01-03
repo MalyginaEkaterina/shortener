@@ -63,20 +63,14 @@ func GetURLByID(store storage.Storage) http.HandlerFunc {
 			http.Error(writer, "Url ID is required", http.StatusBadRequest)
 			return
 		}
-		validID, err := store.ValidID(id)
-		if err != nil {
-			log.Println(err)
-			http.Error(writer, "Internal server error", http.StatusInternalServerError)
-			return
-		}
-		if !validID {
-			http.Error(writer, "Wrong URL ID", http.StatusBadRequest)
-			return
-		}
 		url, err := store.GetURL(id)
 		if err != nil {
-			log.Println(err)
-			http.Error(writer, "Internal server error", http.StatusInternalServerError)
+			if err == storage.ErrNotFound {
+				http.Error(writer, "Not found", http.StatusBadRequest)
+			} else {
+				log.Println(err)
+				http.Error(writer, "Internal server error", http.StatusInternalServerError)
+			}
 			return
 		}
 		writer.Header().Set("Content-Type", "text/html; charset=UTF-8")
