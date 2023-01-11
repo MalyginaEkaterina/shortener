@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"github.com/MalyginaEkaterina/shortener/internal"
 	"github.com/MalyginaEkaterina/shortener/internal/storage"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -11,7 +12,7 @@ import (
 	"strconv"
 )
 
-func NewRouter(store storage.Storage) chi.Router {
+func NewRouter(store storage.Storage, cfg internal.Config) chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
@@ -19,9 +20,9 @@ func NewRouter(store storage.Storage) chi.Router {
 	r.Use(middleware.Recoverer)
 
 	r.Route("/", func(r chi.Router) {
-		r.Post("/", ShortURL(store))
+		r.Post("/", ShortURL(store, cfg.BaseURL))
 		r.Get("/{id}", GetURLByID(store))
-		r.Post("/api/shorten", Shorten(store))
+		r.Post("/api/shorten", Shorten(store, cfg.BaseURL))
 	})
 
 	r.NotFound(func(writer http.ResponseWriter, request *http.Request) {
@@ -42,7 +43,7 @@ type ShortenResponse struct {
 	Result string `json:"result"`
 }
 
-func Shorten(store storage.Storage) http.HandlerFunc {
+func Shorten(store storage.Storage, baseURL string) http.HandlerFunc {
 	return func(writer http.ResponseWriter, req *http.Request) {
 		body, err := io.ReadAll(req.Body)
 		if err != nil {
@@ -65,7 +66,7 @@ func Shorten(store storage.Storage) http.HandlerFunc {
 			http.Error(writer, "Internal server error", http.StatusInternalServerError)
 			return
 		}
-		response := ShortenResponse{Result: "http://localhost:8080/" + strconv.Itoa(ind)}
+		response := ShortenResponse{Result: baseURL + "/" + strconv.Itoa(ind)}
 		respJSON, err := json.Marshal(response)
 		if err != nil {
 			log.Println(err)
@@ -78,7 +79,7 @@ func Shorten(store storage.Storage) http.HandlerFunc {
 	}
 }
 
-func ShortURL(store storage.Storage) http.HandlerFunc {
+func ShortURL(store storage.Storage, baseURL string) http.HandlerFunc {
 	return func(writer http.ResponseWriter, req *http.Request) {
 		body, err := io.ReadAll(req.Body)
 		if err != nil {
@@ -95,7 +96,7 @@ func ShortURL(store storage.Storage) http.HandlerFunc {
 			http.Error(writer, "Internal server error", http.StatusInternalServerError)
 			return
 		}
-		resp := "http://localhost:8080/" + strconv.Itoa(ind)
+		resp := baseURL + "/" + strconv.Itoa(ind)
 		writer.Header().Set("content-type", "text/html; charset=UTF-8")
 		writer.WriteHeader(http.StatusCreated)
 		writer.Write([]byte(resp))

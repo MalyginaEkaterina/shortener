@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"github.com/MalyginaEkaterina/shortener/internal"
 	"github.com/MalyginaEkaterina/shortener/internal/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -55,9 +56,10 @@ func TestGetUrlById(t *testing.T) {
 			want:  want{400, ""},
 		},
 	}
+	cfg := internal.Config{Address: ":8080", BaseURL: "http://localhost:8080"}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := NewRouter(tt.store)
+			r := NewRouter(tt.store, cfg)
 			ts := httptest.NewServer(r)
 			defer ts.Close()
 
@@ -104,9 +106,10 @@ func TestShortUrl(t *testing.T) {
 			want:    want{500, ""},
 		},
 	}
+	cfg := internal.Config{Address: ":8080", BaseURL: "http://localhost:8080"}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := NewRouter(tt.store)
+			r := NewRouter(tt.store, cfg)
 			ts := httptest.NewServer(r)
 			defer ts.Close()
 
@@ -155,9 +158,10 @@ func TestShorten(t *testing.T) {
 			want:    want{statusCode: 500},
 		},
 	}
+	cfg := internal.Config{Address: ":8080", BaseURL: "http://localhost:8080"}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := NewRouter(tt.store)
+			r := NewRouter(tt.store, cfg)
 			ts := httptest.NewServer(r)
 			defer ts.Close()
 
