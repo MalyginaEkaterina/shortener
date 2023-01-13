@@ -10,12 +10,20 @@ import (
 )
 
 func Start() {
-	store := storage.MemoryStorage{}
 	var cfg internal.Config
 	err := env.Parse(&cfg)
 	if err != nil {
 		log.Fatal(err)
 	}
-	r := handlers.NewRouter(&store, cfg)
+	var store storage.Storage
+	if cfg.FileStoragePath != "" {
+		store, err = storage.NewCachedFileStorage(cfg.FileStoragePath)
+		if err != nil {
+			log.Fatal(err)
+		}
+	} else {
+		store = &storage.MemoryStorage{}
+	}
+	r := handlers.NewRouter(store, cfg)
 	log.Fatal(http.ListenAndServe(cfg.Address, r))
 }
