@@ -1,6 +1,7 @@
 package app
 
 import (
+	"flag"
 	"github.com/MalyginaEkaterina/shortener/internal"
 	"github.com/MalyginaEkaterina/shortener/internal/handlers"
 	"github.com/MalyginaEkaterina/shortener/internal/storage"
@@ -11,6 +12,10 @@ import (
 
 func Start() {
 	var cfg internal.Config
+	flag.StringVar(&cfg.Address, "a", "localhost:8080", "address to listen on")
+	flag.StringVar(&cfg.BaseURL, "b", "http://localhost:8080", "base address for short URL")
+	flag.StringVar(&cfg.FileStoragePath, "f", "", "file storage path")
+	flag.Parse()
 	err := env.Parse(&cfg)
 	if err != nil {
 		log.Fatal(err)
@@ -25,5 +30,6 @@ func Start() {
 		store = &storage.MemoryStorage{}
 	}
 	r := handlers.NewRouter(store, cfg)
+	log.Printf("Started server on %s\n", cfg.Address)
 	log.Fatal(http.ListenAndServe(cfg.Address, r))
 }
