@@ -26,8 +26,10 @@ func Start() {
 		if err != nil {
 			log.Fatal(err)
 		}
+		log.Printf("Using cached file storage %s\n", cfg.FileStoragePath)
 	} else {
 		store = &storage.MemoryStorage{}
+		log.Printf("Using memory storage\n")
 	}
 	r := handlers.NewRouter(store, cfg)
 	log.Printf("Started server on %s\n", cfg.Address)

@@ -18,6 +18,7 @@ func NewRouter(store storage.Storage, cfg internal.Config) chi.Router {
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
+	r.Use(gzipHandle)
 
 	r.Route("/", func(r chi.Router) {
 		r.Post("/", ShortURL(store, cfg.BaseURL))
