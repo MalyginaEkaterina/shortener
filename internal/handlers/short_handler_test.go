@@ -2,7 +2,9 @@ package handlers
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
+	"github.com/MalyginaEkaterina/shortener/internal"
 	"github.com/MalyginaEkaterina/shortener/internal/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -54,9 +56,10 @@ func TestGetUrlById(t *testing.T) {
 			want:  want{400, ""},
 		},
 	}
+	cfg := internal.Config{Address: ":8080", BaseURL: "http://localhost:8080"}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := NewRouter(tt.store)
+			r := NewRouter(tt.store, cfg)
 			ts := httptest.NewServer(r)
 			defer ts.Close()
 
@@ -103,9 +106,10 @@ func TestShortUrl(t *testing.T) {
 			want:    want{500, ""},
 		},
 	}
+	cfg := internal.Config{Address: ":8080", BaseURL: "http://localhost:8080"}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := NewRouter(tt.store)
+			r := NewRouter(tt.store, cfg)
 			ts := httptest.NewServer(r)
 			defer ts.Close()
 
@@ -118,6 +122,61 @@ func TestShortUrl(t *testing.T) {
 				respBody, err := io.ReadAll(resp.Body)
 				require.NoError(t, err)
 				assert.Equal(t, tt.want.url, string(respBody))
+			}
+		})
+	}
+
+}
+
+func TestShorten(t *testing.T) {
+	type want struct {
+		statusCode int
+		resp       *ShortenResponse
+	}
+	tests := []struct {
+		name    string
+		request string
+		store   storage.Storage
+		want    want
+	}{
+		{
+			name:    "Positive test",
+			request: "{\"url\":\"http://test.ru\"}",
+			store:   &mockStorage{addURL: 1},
+			want:    want{201, &ShortenResponse{Result: "http://localhost:8080/1"}},
+		},
+		{
+			name:    "Negative test with empty request",
+			request: "",
+			store:   &mockStorage{},
+			want:    want{statusCode: 400},
+		},
+		{
+			name:    "Negative test with addURLErr",
+			request: "{\"url\":\"http://test.ru\"}",
+			store:   &mockStorage{addURLErr: errors.New("Negative test with addURLErr")},
+			want:    want{statusCode: 500},
+		},
+	}
+	cfg := internal.Config{Address: ":8080", BaseURL: "http://localhost:8080"}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := NewRouter(tt.store, cfg)
+			ts := httptest.NewServer(r)
+			defer ts.Close()
+
+			request := httptest.NewRequest(http.MethodPost, ts.URL+"/api/shorten", bytes.NewBufferString(tt.request))
+			resp := httptest.NewRecorder()
+			r.ServeHTTP(resp, request)
+
+			assert.Equal(t, tt.want.statusCode, resp.Code)
+			if tt.want.resp != nil {
+				respBody, err := io.ReadAll(resp.Body)
+				require.NoError(t, err)
+				var result ShortenResponse
+				err = json.Unmarshal(respBody, &result)
+				require.NoError(t, err)
+				assert.Equal(t, *tt.want.resp, result)
 			}
 		})
 	}
@@ -137,4 +196,7 @@ func (s *mockStorage) AddURL(_ string) (int, error) {
 
 func (s *mockStorage) GetURL(_ string) (string, error) {
 	return s.getURL, s.getURLErr
+}
+
+func (s *mockStorage) Close() {
 }
