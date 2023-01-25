@@ -18,19 +18,20 @@ func Start() {
 	flag.Parse()
 	err := env.Parse(&cfg)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("Error while parsing env", err)
 	}
 	var store storage.Storage
 	if cfg.FileStoragePath != "" {
 		store, err = storage.NewCachedFileStorage(cfg.FileStoragePath)
 		if err != nil {
-			log.Fatal(err)
+			log.Fatal("Error creating CachedFileStorage", err)
 		}
 		log.Printf("Using cached file storage %s\n", cfg.FileStoragePath)
 	} else {
 		store = &storage.MemoryStorage{}
 		log.Printf("Using memory storage\n")
 	}
+	defer store.Close()
 	r := handlers.NewRouter(store, cfg)
 	log.Printf("Started server on %s\n", cfg.Address)
 	log.Fatal(http.ListenAndServe(cfg.Address, r))

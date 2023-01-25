@@ -20,3 +20,6 @@ func (s *MemoryStorage) GetURL(idStr string) (string, error) {
 	}
 	return s.Urls[id], err
 }
+
+func (s *MemoryStorage) Close() {
+}

@@ -7,18 +7,17 @@ import (
 )
 
 type CachedFileStorage struct {
-	Filename string
-	Urls     []string
+	File *os.File
+	Urls []string
 }
 
 var _ Storage = (*CachedFileStorage)(nil)
 
 func NewCachedFileStorage(filename string) (*CachedFileStorage, error) {
-	file, err := os.OpenFile(filename, os.O_RDONLY|os.O_CREATE, 0777)
+	file, err := os.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0777)
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
 	var urls []string
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -28,20 +27,18 @@ func NewCachedFileStorage(filename string) (*CachedFileStorage, error) {
 	if err = scanner.Err(); err != nil {
 		return nil, err
 	}
-	return &CachedFileStorage{Filename: filename, Urls: urls}, nil
+	return &CachedFileStorage{File: file, Urls: urls}, nil
+}
+
+func (s *CachedFileStorage) Close() {
+	s.File.Close()
 }
 
 func (s *CachedFileStorage) AddURL(url string) (int, error) {
-	file, err := os.OpenFile(s.Filename, os.O_WRONLY|os.O_APPEND, 0777)
+	data := []byte(url + "\n")
+	_, err := s.File.Write(data)
 	if err != nil {
-		return -1, err
-	}
-	defer file.Close()
-	data := []byte(url)
-	data = append(data, '\n')
-	_, err = file.Write(data)
-	if err != nil {
-		return -1, err
+		return 0, err
 	}
 	s.Urls = append(s.Urls, url)
 	return len(s.Urls) - 1, nil

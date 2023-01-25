@@ -63,14 +63,14 @@ func Shorten(store storage.Storage, baseURL string) http.HandlerFunc {
 		}
 		ind, err := store.AddURL(shortenRequest.URL)
 		if err != nil {
-			log.Println(err)
+			log.Println("Error while adding URl", err)
 			http.Error(writer, "Internal server error", http.StatusInternalServerError)
 			return
 		}
 		response := ShortenResponse{Result: baseURL + "/" + strconv.Itoa(ind)}
 		respJSON, err := json.Marshal(response)
 		if err != nil {
-			log.Println(err)
+			log.Println("Error while serializing response", err)
 			http.Error(writer, "Internal server error", http.StatusInternalServerError)
 			return
 		}
@@ -93,7 +93,7 @@ func ShortURL(store storage.Storage, baseURL string) http.HandlerFunc {
 		}
 		ind, err := store.AddURL(string(body))
 		if err != nil {
-			log.Println(err)
+			log.Println("Error while adding URl", err)
 			http.Error(writer, "Internal server error", http.StatusInternalServerError)
 			return
 		}
@@ -116,7 +116,7 @@ func GetURLByID(store storage.Storage) http.HandlerFunc {
 			if err == storage.ErrNotFound {
 				http.Error(writer, "Not found", http.StatusBadRequest)
 			} else {
-				log.Println(err)
+				log.Println("Error while getting URL", err)
 				http.Error(writer, "Internal server error", http.StatusInternalServerError)
 			}
 			return

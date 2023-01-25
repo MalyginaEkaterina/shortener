@@ -197,3 +197,6 @@ func (s *mockStorage) AddURL(_ string) (int, error) {
 func (s *mockStorage) GetURL(_ string) (string, error) {
 	return s.getURL, s.getURLErr
 }
+
+func (s *mockStorage) Close() {
+}
