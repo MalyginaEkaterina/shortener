@@ -28,7 +28,7 @@ func Start() {
 		}
 		log.Printf("Using cached file storage %s\n", cfg.FileStoragePath)
 	} else {
-		store = &storage.MemoryStorage{}
+		store = &storage.MemoryStorage{UserUrls: make(map[int][]int)}
 		log.Printf("Using memory storage\n")
 	}
 	defer store.Close()

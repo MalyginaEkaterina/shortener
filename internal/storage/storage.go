@@ -9,7 +9,9 @@ var (
 )
 
 type Storage interface {
-	AddURL(url string) (int, error)
+	AddUser() (int, error)
+	AddURL(url string, userID int) (int, error)
 	GetURL(id string) (string, error)
+	GetUserUrls(userID int) (map[int]string, error)
 	Close()
 }

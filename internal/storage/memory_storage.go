@@ -3,14 +3,23 @@ package storage
 import "strconv"
 
 type MemoryStorage struct {
-	Urls []string
+	Urls      []string
+	UserCount int
+	UserUrls  map[int][]int
 }
 
 var _ Storage = (*MemoryStorage)(nil)
 
-func (s *MemoryStorage) AddURL(url string) (int, error) {
+func (s *MemoryStorage) AddUser() (int, error) {
+	s.UserCount++
+	return s.UserCount, nil
+}
+
+func (s *MemoryStorage) AddURL(url string, userID int) (int, error) {
 	s.Urls = append(s.Urls, url)
-	return len(s.Urls) - 1, nil
+	urlID := len(s.Urls) - 1
+	s.UserUrls[userID] = append(s.UserUrls[userID], urlID)
+	return urlID, nil
 }
 
 func (s *MemoryStorage) GetURL(idStr string) (string, error) {
@@ -19,6 +28,18 @@ func (s *MemoryStorage) GetURL(idStr string) (string, error) {
 		return "", ErrNotFound
 	}
 	return s.Urls[id], err
+}
+
+func (s *MemoryStorage) GetUserUrls(userID int) (map[int]string, error) {
+	urlIDs, ok := s.UserUrls[userID]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	res := make(map[int]string)
+	for _, urlID := range urlIDs {
+		res[urlID] = s.Urls[urlID]
+	}
+	return res, nil
 }
 
 func (s *MemoryStorage) Close() {
