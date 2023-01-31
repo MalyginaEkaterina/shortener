@@ -59,7 +59,7 @@ func TestGetUrlById(t *testing.T) {
 	cfg := internal.Config{Address: ":8080", BaseURL: "http://localhost:8080"}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := NewRouter(tt.store, cfg)
+			r := NewRouter(tt.store, cfg, nil)
 			ts := httptest.NewServer(r)
 			defer ts.Close()
 
@@ -109,7 +109,7 @@ func TestShortUrl(t *testing.T) {
 	cfg := internal.Config{Address: ":8080", BaseURL: "http://localhost:8080"}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := NewRouter(tt.store, cfg)
+			r := NewRouter(tt.store, cfg, nil)
 			ts := httptest.NewServer(r)
 			defer ts.Close()
 
@@ -161,7 +161,7 @@ func TestShorten(t *testing.T) {
 	cfg := internal.Config{Address: ":8080", BaseURL: "http://localhost:8080"}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := NewRouter(tt.store, cfg)
+			r := NewRouter(tt.store, cfg, nil)
 			ts := httptest.NewServer(r)
 			defer ts.Close()
 
@@ -220,7 +220,7 @@ func TestGetUserUrls(t *testing.T) {
 	cfg := internal.Config{Address: ":8080", BaseURL: "http://localhost:8080"}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := NewRouter(tt.store, cfg)
+			r := NewRouter(tt.store, cfg, nil)
 			ts := httptest.NewServer(r)
 			defer ts.Close()
 

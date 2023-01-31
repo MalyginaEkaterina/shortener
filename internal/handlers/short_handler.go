@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"github.com/MalyginaEkaterina/shortener/internal"
@@ -11,9 +13,10 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"time"
 )
 
-func NewRouter(store storage.Storage, cfg internal.Config) chi.Router {
+func NewRouter(store storage.Storage, cfg internal.Config, db *sql.DB) chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
@@ -26,6 +29,7 @@ func NewRouter(store storage.Storage, cfg internal.Config) chi.Router {
 		r.Get("/{id}", GetURLByID(store))
 		r.Post("/api/shorten", Shorten(store, cfg.BaseURL))
 		r.Get("/api/user/urls", GetUserUrls(store, cfg.BaseURL))
+		r.Get("/ping", PingDB(db))
 	})
 
 	r.NotFound(func(writer http.ResponseWriter, request *http.Request) {
@@ -232,5 +236,17 @@ func GetUserUrls(store storage.Storage, baseURL string) http.HandlerFunc {
 			writer.WriteHeader(http.StatusOK)
 			writer.Write(respJSON)
 		}
+	}
+}
+
+func PingDB(db *sql.DB) http.HandlerFunc {
+	return func(writer http.ResponseWriter, req *http.Request) {
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
+		err := db.PingContext(ctx)
+		if err != nil {
+			http.Error(writer, "Failed to check database connection", http.StatusInternalServerError)
+		}
+		writer.WriteHeader(http.StatusOK)
 	}
 }
