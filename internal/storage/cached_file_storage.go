@@ -2,6 +2,7 @@ package storage
 
 import (
 	"bufio"
+	"context"
 	"os"
 	"strconv"
 	"strings"
@@ -49,12 +50,12 @@ func (s *CachedFileStorage) Close() {
 	s.File.Close()
 }
 
-func (s *CachedFileStorage) AddUser() (int, error) {
+func (s *CachedFileStorage) AddUser(_ context.Context) (int, error) {
 	s.UserCount++
 	return s.UserCount, nil
 }
 
-func (s *CachedFileStorage) AddURL(url string, userID int) (int, error) {
+func (s *CachedFileStorage) AddURL(_ context.Context, url string, userID int) (int, error) {
 	data := []byte(strconv.Itoa(userID) + " " + url + "\n")
 	_, err := s.File.Write(data)
 	if err != nil {
@@ -66,7 +67,7 @@ func (s *CachedFileStorage) AddURL(url string, userID int) (int, error) {
 	return urlID, nil
 }
 
-func (s *CachedFileStorage) GetURL(idStr string) (string, error) {
+func (s *CachedFileStorage) GetURL(_ context.Context, idStr string) (string, error) {
 	id, err := strconv.Atoi(idStr)
 	if err != nil || id < 0 || id >= len(s.Urls) {
 		return "", ErrNotFound
@@ -74,7 +75,7 @@ func (s *CachedFileStorage) GetURL(idStr string) (string, error) {
 	return s.Urls[id], err
 }
 
-func (s *CachedFileStorage) GetUserUrls(userID int) (map[int]string, error) {
+func (s *CachedFileStorage) GetUserUrls(_ context.Context, userID int) (map[int]string, error) {
 	urlIDs, ok := s.UserUrls[userID]
 	if !ok {
 		return nil, ErrNotFound

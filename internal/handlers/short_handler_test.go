@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"github.com/MalyginaEkaterina/shortener/internal"
@@ -59,7 +60,7 @@ func TestGetUrlById(t *testing.T) {
 	cfg := internal.Config{Address: ":8080", BaseURL: "http://localhost:8080"}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := NewRouter(tt.store, cfg, nil)
+			r := NewRouter(tt.store, cfg)
 			ts := httptest.NewServer(r)
 			defer ts.Close()
 
@@ -109,7 +110,7 @@ func TestShortUrl(t *testing.T) {
 	cfg := internal.Config{Address: ":8080", BaseURL: "http://localhost:8080"}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := NewRouter(tt.store, cfg, nil)
+			r := NewRouter(tt.store, cfg)
 			ts := httptest.NewServer(r)
 			defer ts.Close()
 
@@ -161,7 +162,7 @@ func TestShorten(t *testing.T) {
 	cfg := internal.Config{Address: ":8080", BaseURL: "http://localhost:8080"}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := NewRouter(tt.store, cfg, nil)
+			r := NewRouter(tt.store, cfg)
 			ts := httptest.NewServer(r)
 			defer ts.Close()
 
@@ -220,7 +221,7 @@ func TestGetUserUrls(t *testing.T) {
 	cfg := internal.Config{Address: ":8080", BaseURL: "http://localhost:8080"}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := NewRouter(tt.store, cfg, nil)
+			r := NewRouter(tt.store, cfg)
 			ts := httptest.NewServer(r)
 			defer ts.Close()
 
@@ -254,7 +255,7 @@ type mockStorage struct {
 	userUrlsEmpty bool
 }
 
-func (s *mockStorage) GetUserUrls(userID int) (map[int]string, error) {
+func (s *mockStorage) GetUserUrls(_ context.Context, userID int) (map[int]string, error) {
 	if s.userUrlsEmpty {
 		return nil, storage.ErrNotFound
 	}
@@ -264,15 +265,15 @@ func (s *mockStorage) GetUserUrls(userID int) (map[int]string, error) {
 	return res, nil
 }
 
-func (s *mockStorage) AddUser() (int, error) {
+func (s *mockStorage) AddUser(_ context.Context) (int, error) {
 	return 0, nil
 }
 
-func (s *mockStorage) AddURL(_ string, _ int) (int, error) {
+func (s *mockStorage) AddURL(_ context.Context, _ string, _ int) (int, error) {
 	return s.addURL, s.addURLErr
 }
 
-func (s *mockStorage) GetURL(_ string) (string, error) {
+func (s *mockStorage) GetURL(_ context.Context, _ string) (string, error) {
 	return s.getURL, s.getURLErr
 }
 

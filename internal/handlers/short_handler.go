@@ -1,8 +1,6 @@
 package handlers
 
 import (
-	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"github.com/MalyginaEkaterina/shortener/internal"
@@ -13,10 +11,9 @@ import (
 	"log"
 	"net/http"
 	"strconv"
-	"time"
 )
 
-func NewRouter(store storage.Storage, cfg internal.Config, db *sql.DB) chi.Router {
+func NewRouter(store storage.Storage, cfg internal.Config) chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
@@ -29,7 +26,7 @@ func NewRouter(store storage.Storage, cfg internal.Config, db *sql.DB) chi.Route
 		r.Get("/{id}", GetURLByID(store))
 		r.Post("/api/shorten", Shorten(store, cfg.BaseURL))
 		r.Get("/api/user/urls", GetUserUrls(store, cfg.BaseURL))
-		r.Get("/ping", PingDB(db))
+		r.Get("/ping", PingDB(store))
 	})
 
 	r.NotFound(func(writer http.ResponseWriter, request *http.Request) {
@@ -75,7 +72,7 @@ func getIDAndCookie(store storage.Storage, req *http.Request) (int, *http.Cookie
 		}
 	}
 	if err != nil || !authOK {
-		userID, err = store.AddUser()
+		userID, err = store.AddUser(req.Context())
 		if err != nil {
 			log.Println("Error while adding user", err)
 			return 0, nil, err
@@ -128,7 +125,7 @@ func Shorten(store storage.Storage, baseURL string) http.HandlerFunc {
 			http.Error(writer, "Internal server error", http.StatusInternalServerError)
 			return
 		}
-		ind, err := store.AddURL(shortenRequest.URL, userID)
+		ind, err := store.AddURL(req.Context(), shortenRequest.URL, userID)
 		if err != nil {
 			log.Println("Error while adding URl", err)
 			http.Error(writer, "Internal server error", http.StatusInternalServerError)
@@ -166,7 +163,7 @@ func ShortURL(store storage.Storage, baseURL string) http.HandlerFunc {
 			http.Error(writer, "Internal server error", http.StatusInternalServerError)
 			return
 		}
-		ind, err := store.AddURL(string(body), userID)
+		ind, err := store.AddURL(req.Context(), string(body), userID)
 		if err != nil {
 			log.Println("Error while adding URl", err)
 			http.Error(writer, "Internal server error", http.StatusInternalServerError)
@@ -189,7 +186,7 @@ func GetURLByID(store storage.Storage) http.HandlerFunc {
 			http.Error(writer, "Url ID is required", http.StatusBadRequest)
 			return
 		}
-		url, err := store.GetURL(id)
+		url, err := store.GetURL(req.Context(), id)
 		if err != nil {
 			if err == storage.ErrNotFound {
 				http.Error(writer, "Not found", http.StatusBadRequest)
@@ -213,7 +210,7 @@ func GetUserUrls(store storage.Storage, baseURL string) http.HandlerFunc {
 			writer.WriteHeader(http.StatusNoContent)
 			return
 		}
-		urls, err := store.GetUserUrls(userID)
+		urls, err := store.GetUserUrls(req.Context(), userID)
 		if err != nil {
 			if err == storage.ErrNotFound {
 				writer.WriteHeader(http.StatusNoContent)
@@ -239,11 +236,13 @@ func GetUserUrls(store storage.Storage, baseURL string) http.HandlerFunc {
 	}
 }
 
-func PingDB(db *sql.DB) http.HandlerFunc {
+func PingDB(store storage.Storage) http.HandlerFunc {
 	return func(writer http.ResponseWriter, req *http.Request) {
-		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-		defer cancel()
-		err := db.PingContext(ctx)
+		dbStorage, ok := store.(*storage.DBStorage)
+		if !ok {
+			http.Error(writer, "Failed to check database connection", http.StatusInternalServerError)
+		}
+		err := dbStorage.Ping(req.Context())
 		if err != nil {
 			http.Error(writer, "Failed to check database connection", http.StatusInternalServerError)
 		}

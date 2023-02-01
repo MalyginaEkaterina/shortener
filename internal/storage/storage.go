@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"errors"
 )
 
@@ -9,9 +10,9 @@ var (
 )
 
 type Storage interface {
-	AddUser() (int, error)
-	AddURL(url string, userID int) (int, error)
-	GetURL(id string) (string, error)
-	GetUserUrls(userID int) (map[int]string, error)
+	AddUser(ctx context.Context) (int, error)
+	AddURL(ctx context.Context, url string, userID int) (int, error)
+	GetURL(ctx context.Context, id string) (string, error)
+	GetUserUrls(ctx context.Context, userID int) (map[int]string, error)
 	Close()
 }

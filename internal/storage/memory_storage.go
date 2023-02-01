@@ -1,6 +1,9 @@
 package storage
 
-import "strconv"
+import (
+	"context"
+	"strconv"
+)
 
 type MemoryStorage struct {
 	Urls      []string
@@ -10,19 +13,19 @@ type MemoryStorage struct {
 
 var _ Storage = (*MemoryStorage)(nil)
 
-func (s *MemoryStorage) AddUser() (int, error) {
+func (s *MemoryStorage) AddUser(_ context.Context) (int, error) {
 	s.UserCount++
 	return s.UserCount, nil
 }
 
-func (s *MemoryStorage) AddURL(url string, userID int) (int, error) {
+func (s *MemoryStorage) AddURL(_ context.Context, url string, userID int) (int, error) {
 	s.Urls = append(s.Urls, url)
 	urlID := len(s.Urls) - 1
 	s.UserUrls[userID] = append(s.UserUrls[userID], urlID)
 	return urlID, nil
 }
 
-func (s *MemoryStorage) GetURL(idStr string) (string, error) {
+func (s *MemoryStorage) GetURL(_ context.Context, idStr string) (string, error) {
 	id, err := strconv.Atoi(idStr)
 	if err != nil || id < 0 || id >= len(s.Urls) {
 		return "", ErrNotFound
@@ -30,7 +33,7 @@ func (s *MemoryStorage) GetURL(idStr string) (string, error) {
 	return s.Urls[id], err
 }
 
-func (s *MemoryStorage) GetUserUrls(userID int) (map[int]string, error) {
+func (s *MemoryStorage) GetUserUrls(_ context.Context, userID int) (map[int]string, error) {
 	urlIDs, ok := s.UserUrls[userID]
 	if !ok {
 		return nil, ErrNotFound
