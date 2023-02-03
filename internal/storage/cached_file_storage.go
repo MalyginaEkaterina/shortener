@@ -3,6 +3,7 @@ package storage
 import (
 	"bufio"
 	"context"
+	"github.com/MalyginaEkaterina/shortener/internal"
 	"os"
 	"strconv"
 	"strings"
@@ -83,6 +84,22 @@ func (s *CachedFileStorage) GetUserUrls(_ context.Context, userID int) (map[int]
 	res := make(map[int]string)
 	for _, urlID := range urlIDs {
 		res[urlID] = s.Urls[urlID]
+	}
+	return res, nil
+}
+
+func (s *CachedFileStorage) AddBatch(_ context.Context, urls []internal.CorrIDOriginalURL, userID int) ([]internal.CorrIDUrlID, error) {
+	var res []internal.CorrIDUrlID
+	for _, v := range urls {
+		data := []byte(strconv.Itoa(userID) + " " + v.OriginalURL + "\n")
+		_, err := s.File.Write(data)
+		if err == nil {
+			corrIDUrlID := internal.CorrIDUrlID{CorrID: v.CorrID}
+			s.Urls = append(s.Urls, v.OriginalURL)
+			corrIDUrlID.URLID = len(s.Urls) - 1
+			s.UserUrls[userID] = append(s.UserUrls[userID], corrIDUrlID.URLID)
+			res = append(res, corrIDUrlID)
+		}
 	}
 	return res, nil
 }

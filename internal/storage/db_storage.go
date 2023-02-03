@@ -3,12 +3,17 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"github.com/MalyginaEkaterina/shortener/internal"
 	"log"
 	"time"
 )
 
 type DBStorage struct {
-	DB *sql.DB
+	DB               *sql.DB
+	insertUser       *sql.Stmt
+	insertURL        *sql.Stmt
+	selectURLByID    *sql.Stmt
+	selectUrlsByUser *sql.Stmt
 }
 
 var _ Storage = (*DBStorage)(nil)
@@ -22,7 +27,29 @@ func NewDBStorage(dsn string) (*DBStorage, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &DBStorage{DB: db}, nil
+	stmtInsertUser, err := db.Prepare("INSERT INTO users DEFAULT VALUES RETURNING id")
+	if err != nil {
+		return nil, err
+	}
+	stmtInsertURL, err := db.Prepare("INSERT INTO urls (original_url, user_id) VALUES ($1, $2) RETURNING id")
+	if err != nil {
+		return nil, err
+	}
+	stmtSelectURLByID, err := db.Prepare("SELECT original_url FROM urls WHERE id = $1")
+	if err != nil {
+		return nil, err
+	}
+	stmtSelectUrlsByUser, err := db.Prepare("SELECT id, original_url FROM urls WHERE user_id = $1")
+	if err != nil {
+		return nil, err
+	}
+	return &DBStorage{
+		DB:               db,
+		insertUser:       stmtInsertUser,
+		insertURL:        stmtInsertURL,
+		selectURLByID:    stmtSelectURLByID,
+		selectUrlsByUser: stmtSelectUrlsByUser,
+	}, nil
 }
 
 func initTables(db *sql.DB) error {
@@ -40,33 +67,28 @@ func initTables(db *sql.DB) error {
 }
 
 func (d DBStorage) AddUser(ctx context.Context) (int, error) {
-	insertUser := "INSERT INTO users DEFAULT VALUES RETURNING id"
-	row := d.DB.QueryRowContext(ctx, insertUser)
+	row := d.insertUser.QueryRowContext(ctx)
 	var id int
 	err := row.Scan(&id)
 	if err != nil {
 		return 0, err
 	}
-	log.Printf("inserted user id %d\n", id)
 	return id, nil
 }
 
 func (d DBStorage) AddURL(ctx context.Context, url string, userID int) (int, error) {
-	insertURL := "INSERT INTO urls (original_url, user_id) VALUES ($1, $2) RETURNING id"
-	row := d.DB.QueryRowContext(ctx, insertURL, url, userID)
+	row := d.insertURL.QueryRowContext(ctx, url, userID)
 	var id int
 	err := row.Scan(&id)
 	if err != nil {
 		return 0, err
 	}
-	log.Printf("inserted url id %d\n", id)
 	return id, nil
 }
 
 func (d DBStorage) GetURL(ctx context.Context, id string) (string, error) {
+	row := d.selectURLByID.QueryRowContext(ctx, id)
 	var originalURL string
-	selectURL := "SELECT original_url FROM urls WHERE id = $1"
-	row := d.DB.QueryRowContext(ctx, selectURL, id)
 	err := row.Scan(&originalURL)
 	if err != nil {
 		return "", err
@@ -75,8 +97,7 @@ func (d DBStorage) GetURL(ctx context.Context, id string) (string, error) {
 }
 
 func (d DBStorage) GetUserUrls(ctx context.Context, userID int) (map[int]string, error) {
-	selectUserUrls := "SELECT id, original_url FROM urls WHERE user_id = $1"
-	rows, err := d.DB.QueryContext(ctx, selectUserUrls, userID)
+	rows, err := d.selectUrlsByUser.QueryContext(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +122,35 @@ func (d DBStorage) GetUserUrls(ctx context.Context, userID int) (map[int]string,
 	return userUrls, nil
 }
 
+func (d DBStorage) AddBatch(ctx context.Context, urls []internal.CorrIDOriginalURL, userID int) ([]internal.CorrIDUrlID, error) {
+	tx, err := d.DB.Begin()
+	if err != nil {
+		log.Println("Begin transaction error", err)
+		return nil, err
+	}
+	txStmt := tx.StmtContext(ctx, d.insertURL)
+	var corrURLIDs []internal.CorrIDUrlID
+	for _, v := range urls {
+		row := txStmt.QueryRowContext(ctx, v.OriginalURL, userID)
+		corrURLID := internal.CorrIDUrlID{CorrID: v.CorrID}
+		err := row.Scan(&corrURLID.URLID)
+		if err == nil {
+			corrURLIDs = append(corrURLIDs, corrURLID)
+		}
+	}
+	err = tx.Commit()
+	if err != nil {
+		log.Println("Commit error", err)
+		return nil, err
+	}
+	return corrURLIDs, nil
+}
+
 func (d DBStorage) Close() {
+	d.insertUser.Close()
+	d.insertURL.Close()
+	d.selectURLByID.Close()
+	d.selectUrlsByUser.Close()
 	d.DB.Close()
 }
 

@@ -247,12 +247,79 @@ func TestGetUserUrls(t *testing.T) {
 
 }
 
+func TestShortenBatch(t *testing.T) {
+	type want struct {
+		statusCode int
+		resp       []internal.CorrIDShortURL
+	}
+	tests := []struct {
+		name    string
+		request string
+		store   storage.Storage
+		want    want
+	}{
+		{
+			name:    "Positive test",
+			request: "[{\"correlation_id\":\"str1\",\"original_url\":\"https://test1.ru\"},{\"correlation_id\":\"str2\",\"original_url\":\"https://test2.ru\"}]",
+			store: &mockStorage{addBatch: []internal.CorrIDUrlID{
+				{CorrID: "str1", URLID: 1},
+				{CorrID: "str2", URLID: 2},
+			}},
+			want: want{201, []internal.CorrIDShortURL{
+				{CorrID: "str1", ShortURL: "http://localhost:8080/1"},
+				{CorrID: "str2", ShortURL: "http://localhost:8080/2"},
+			}},
+		},
+		{
+			name:    "Negative test with empty request",
+			request: "",
+			store:   &mockStorage{},
+			want:    want{statusCode: 400},
+		},
+		{
+			name:    "Negative test with addBatchErr",
+			request: "[{\"correlation_id\": \"str1\",\"original_url\": \"https://test1.ru\"}]",
+			store:   &mockStorage{addBatchErr: errors.New("Negative test with addBatchErr")},
+			want:    want{statusCode: 500},
+		},
+	}
+	cfg := internal.Config{Address: ":8080", BaseURL: "http://localhost:8080"}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := NewRouter(tt.store, cfg)
+			ts := httptest.NewServer(r)
+			defer ts.Close()
+
+			request := httptest.NewRequest(http.MethodPost, ts.URL+"/api/shorten/batch", bytes.NewBufferString(tt.request))
+			resp := httptest.NewRecorder()
+			r.ServeHTTP(resp, request)
+
+			assert.Equal(t, tt.want.statusCode, resp.Code)
+			if tt.want.resp != nil {
+				respBody, err := io.ReadAll(resp.Body)
+				require.NoError(t, err)
+				var result []internal.CorrIDShortURL
+				err = json.Unmarshal(respBody, &result)
+				require.NoError(t, err)
+				assert.ElementsMatch(t, tt.want.resp, result)
+			}
+		})
+	}
+
+}
+
 type mockStorage struct {
 	addURL        int
 	addURLErr     error
 	getURL        string
 	getURLErr     error
 	userUrlsEmpty bool
+	addBatch      []internal.CorrIDUrlID
+	addBatchErr   error
+}
+
+func (s *mockStorage) AddBatch(_ context.Context, _ []internal.CorrIDOriginalURL, _ int) ([]internal.CorrIDUrlID, error) {
+	return s.addBatch, s.addBatchErr
 }
 
 func (s *mockStorage) GetUserUrls(_ context.Context, userID int) (map[int]string, error) {
