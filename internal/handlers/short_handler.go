@@ -126,7 +126,17 @@ func Shorten(store storage.Storage, baseURL string) http.HandlerFunc {
 			http.Error(writer, "Internal server error", http.StatusInternalServerError)
 			return
 		}
+		status := http.StatusCreated
 		ind, err := store.AddURL(req.Context(), shortenRequest.URL, userID)
+		if errors.Is(err, storage.ErrAlreadyExists) {
+			status = http.StatusConflict
+			ind, err = store.GetURLID(req.Context(), shortenRequest.URL)
+			if err != nil {
+				log.Println("Error while getting URL id", err)
+				http.Error(writer, "Internal server error", http.StatusInternalServerError)
+				return
+			}
+		}
 		if err != nil {
 			log.Println("Error while adding URl", err)
 			http.Error(writer, "Internal server error", http.StatusInternalServerError)
@@ -143,7 +153,7 @@ func Shorten(store storage.Storage, baseURL string) http.HandlerFunc {
 			http.SetCookie(writer, tokenCookie)
 		}
 		writer.Header().Set("content-type", "application/json")
-		writer.WriteHeader(http.StatusCreated)
+		writer.WriteHeader(status)
 		writer.Write(respJSON)
 	}
 }
@@ -164,8 +174,18 @@ func ShortURL(store storage.Storage, baseURL string) http.HandlerFunc {
 			http.Error(writer, "Internal server error", http.StatusInternalServerError)
 			return
 		}
-		ind, err := store.AddURL(req.Context(), string(body), userID)
-		if err != nil {
+		url := string(body)
+		status := http.StatusCreated
+		ind, err := store.AddURL(req.Context(), url, userID)
+		if errors.Is(err, storage.ErrAlreadyExists) {
+			status = http.StatusConflict
+			ind, err = store.GetURLID(req.Context(), url)
+			if err != nil {
+				log.Println("Error while getting URL id", err)
+				http.Error(writer, "Internal server error", http.StatusInternalServerError)
+				return
+			}
+		} else if err != nil {
 			log.Println("Error while adding URl", err)
 			http.Error(writer, "Internal server error", http.StatusInternalServerError)
 			return
@@ -175,7 +195,7 @@ func ShortURL(store storage.Storage, baseURL string) http.HandlerFunc {
 			http.SetCookie(writer, tokenCookie)
 		}
 		writer.Header().Set("content-type", "text/html; charset=UTF-8")
-		writer.WriteHeader(http.StatusCreated)
+		writer.WriteHeader(status)
 		writer.Write([]byte(resp))
 	}
 }
@@ -189,7 +209,7 @@ func GetURLByID(store storage.Storage) http.HandlerFunc {
 		}
 		url, err := store.GetURL(req.Context(), id)
 		if err != nil {
-			if err == storage.ErrNotFound {
+			if errors.Is(err, storage.ErrNotFound) {
 				http.Error(writer, "Not found", http.StatusBadRequest)
 			} else {
 				log.Println("Error while getting URL", err)
@@ -212,7 +232,7 @@ func GetUserUrls(store storage.Storage, baseURL string) http.HandlerFunc {
 			return
 		}
 		urls, err := store.GetUserUrls(req.Context(), userID)
-		if err == storage.ErrNotFound || len(urls) == 0 {
+		if errors.Is(err, storage.ErrNotFound) || len(urls) == 0 {
 			writer.WriteHeader(http.StatusNoContent)
 		} else if err != nil {
 			log.Println("Error while getting URLs", err)

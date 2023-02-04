@@ -10,6 +10,7 @@ type MemoryStorage struct {
 	Urls      []string
 	UserCount int
 	UserUrls  map[int][]int
+	UrlsID    map[string]int
 }
 
 var _ Storage = (*MemoryStorage)(nil)
@@ -20,8 +21,13 @@ func (s *MemoryStorage) AddUser(_ context.Context) (int, error) {
 }
 
 func (s *MemoryStorage) AddURL(_ context.Context, url string, userID int) (int, error) {
+	_, ok := s.UrlsID[url]
+	if ok {
+		return 0, ErrAlreadyExists
+	}
 	s.Urls = append(s.Urls, url)
 	urlID := len(s.Urls) - 1
+	s.UrlsID[url] = urlID
 	s.UserUrls[userID] = append(s.UserUrls[userID], urlID)
 	return urlID, nil
 }
@@ -32,6 +38,10 @@ func (s *MemoryStorage) GetURL(_ context.Context, idStr string) (string, error) 
 		return "", ErrNotFound
 	}
 	return s.Urls[id], err
+}
+
+func (s *MemoryStorage) GetURLID(_ context.Context, url string) (int, error) {
+	return s.UrlsID[url], nil
 }
 
 func (s *MemoryStorage) GetUserUrls(_ context.Context, userID int) (map[int]string, error) {

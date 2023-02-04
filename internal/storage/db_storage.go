@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"github.com/MalyginaEkaterina/shortener/internal"
 	"log"
 	"time"
@@ -14,6 +15,7 @@ type DBStorage struct {
 	insertURL        *sql.Stmt
 	selectURLByID    *sql.Stmt
 	selectUrlsByUser *sql.Stmt
+	selectURLID      *sql.Stmt
 }
 
 var _ Storage = (*DBStorage)(nil)
@@ -31,7 +33,7 @@ func NewDBStorage(dsn string) (*DBStorage, error) {
 	if err != nil {
 		return nil, err
 	}
-	stmtInsertURL, err := db.Prepare("INSERT INTO urls (original_url, user_id) VALUES ($1, $2) RETURNING id")
+	stmtInsertURL, err := db.Prepare("INSERT INTO urls (original_url, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING id")
 	if err != nil {
 		return nil, err
 	}
@@ -43,23 +45,26 @@ func NewDBStorage(dsn string) (*DBStorage, error) {
 	if err != nil {
 		return nil, err
 	}
+	stmtSelectURLID, err := db.Prepare("SELECT id FROM urls WHERE original_url = $1")
+	if err != nil {
+		return nil, err
+	}
 	return &DBStorage{
 		DB:               db,
 		insertUser:       stmtInsertUser,
 		insertURL:        stmtInsertURL,
 		selectURLByID:    stmtSelectURLByID,
 		selectUrlsByUser: stmtSelectUrlsByUser,
+		selectURLID:      stmtSelectURLID,
 	}, nil
 }
 
 func initTables(db *sql.DB) error {
-	userSQL := "CREATE TABLE IF NOT EXISTS users (id serial PRIMARY KEY)"
-	urlsSQL := "CREATE TABLE IF NOT EXISTS urls (id bigserial PRIMARY KEY, original_url varchar, user_id integer, FOREIGN KEY (user_id) REFERENCES users (id))"
-	_, err := db.Exec(userSQL)
+	_, err := db.Exec("CREATE TABLE IF NOT EXISTS users (id serial PRIMARY KEY)")
 	if err != nil {
 		return err
 	}
-	_, err = db.Exec(urlsSQL)
+	_, err = db.Exec("CREATE TABLE IF NOT EXISTS urls (id bigserial PRIMARY KEY, original_url varchar, user_id integer, UNIQUE(original_url), FOREIGN KEY (user_id) REFERENCES users (id))")
 	if err != nil {
 		return err
 	}
@@ -78,6 +83,18 @@ func (d DBStorage) AddUser(ctx context.Context) (int, error) {
 
 func (d DBStorage) AddURL(ctx context.Context, url string, userID int) (int, error) {
 	row := d.insertURL.QueryRowContext(ctx, url, userID)
+	var id int
+	err := row.Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, ErrAlreadyExists
+	} else if err != nil {
+		return 0, err
+	}
+	return id, nil
+}
+
+func (d DBStorage) GetURLID(ctx context.Context, url string) (int, error) {
+	row := d.selectURLID.QueryRowContext(ctx, url)
 	var id int
 	err := row.Scan(&id)
 	if err != nil {

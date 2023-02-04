@@ -106,6 +106,12 @@ func TestShortUrl(t *testing.T) {
 			store:   &mockStorage{addURLErr: errors.New("Negative test with addURLErr")},
 			want:    want{500, ""},
 		},
+		{
+			name:    "Test with 409 status",
+			request: "http://test.ru",
+			store:   &mockStorage{addURLErr: storage.ErrAlreadyExists, getURLID: 1},
+			want:    want{409, "http://localhost:8080/1"},
+		},
 	}
 	cfg := internal.Config{Address: ":8080", BaseURL: "http://localhost:8080"}
 	for _, tt := range tests {
@@ -157,6 +163,12 @@ func TestShorten(t *testing.T) {
 			request: "{\"url\":\"http://test.ru\"}",
 			store:   &mockStorage{addURLErr: errors.New("Negative test with addURLErr")},
 			want:    want{statusCode: 500},
+		},
+		{
+			name:    "Test with 409 status",
+			request: "{\"url\":\"http://test.ru\"}",
+			store:   &mockStorage{addURLErr: storage.ErrAlreadyExists, getURLID: 1},
+			want:    want{409, &ShortenResponse{Result: "http://localhost:8080/1"}},
 		},
 	}
 	cfg := internal.Config{Address: ":8080", BaseURL: "http://localhost:8080"}
@@ -313,6 +325,8 @@ type mockStorage struct {
 	addURLErr     error
 	getURL        string
 	getURLErr     error
+	getURLID      int
+	getURLIDErr   error
 	userUrlsEmpty bool
 	addBatch      []internal.CorrIDUrlID
 	addBatchErr   error
@@ -338,6 +352,10 @@ func (s *mockStorage) AddUser(_ context.Context) (int, error) {
 
 func (s *mockStorage) AddURL(_ context.Context, _ string, _ int) (int, error) {
 	return s.addURL, s.addURLErr
+}
+
+func (s *mockStorage) GetURLID(_ context.Context, _ string) (int, error) {
+	return s.getURLID, s.getURLIDErr
 }
 
 func (s *mockStorage) GetURL(_ context.Context, _ string) (string, error) {

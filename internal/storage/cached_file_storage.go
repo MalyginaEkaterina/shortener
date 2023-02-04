@@ -14,6 +14,7 @@ type CachedFileStorage struct {
 	Urls      []string
 	UserCount int
 	UserUrls  map[int][]int
+	UrlsID    map[string]int
 }
 
 var _ Storage = (*CachedFileStorage)(nil)
@@ -26,6 +27,7 @@ func NewCachedFileStorage(filename string) (*CachedFileStorage, error) {
 	var urls []string
 	var userCount int
 	userUrls := make(map[int][]int)
+	urlsID := make(map[string]int)
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		str := string(scanner.Bytes())
@@ -39,12 +41,13 @@ func NewCachedFileStorage(filename string) (*CachedFileStorage, error) {
 		}
 		urls = append(urls, d[1])
 		urlID := len(urls) - 1
+		urlsID[d[1]] = urlID
 		userUrls[userID] = append(userUrls[userID], urlID)
 	}
 	if err = scanner.Err(); err != nil {
 		return nil, err
 	}
-	return &CachedFileStorage{File: file, Urls: urls, UserCount: userCount, UserUrls: userUrls}, nil
+	return &CachedFileStorage{File: file, Urls: urls, UserCount: userCount, UserUrls: userUrls, UrlsID: urlsID}, nil
 }
 
 func (s *CachedFileStorage) Close() {
@@ -57,6 +60,10 @@ func (s *CachedFileStorage) AddUser(_ context.Context) (int, error) {
 }
 
 func (s *CachedFileStorage) AddURL(_ context.Context, url string, userID int) (int, error) {
+	_, ok := s.UrlsID[url]
+	if ok {
+		return 0, ErrAlreadyExists
+	}
 	data := []byte(strconv.Itoa(userID) + " " + url + "\n")
 	_, err := s.File.Write(data)
 	if err != nil {
@@ -64,6 +71,7 @@ func (s *CachedFileStorage) AddURL(_ context.Context, url string, userID int) (i
 	}
 	s.Urls = append(s.Urls, url)
 	urlID := len(s.Urls) - 1
+	s.UrlsID[url] = urlID
 	s.UserUrls[userID] = append(s.UserUrls[userID], urlID)
 	return urlID, nil
 }
@@ -74,6 +82,10 @@ func (s *CachedFileStorage) GetURL(_ context.Context, idStr string) (string, err
 		return "", ErrNotFound
 	}
 	return s.Urls[id], err
+}
+
+func (s *CachedFileStorage) GetURLID(_ context.Context, url string) (int, error) {
+	return s.UrlsID[url], nil
 }
 
 func (s *CachedFileStorage) GetUserUrls(_ context.Context, userID int) (map[int]string, error) {
