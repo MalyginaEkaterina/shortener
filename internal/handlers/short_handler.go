@@ -13,7 +13,13 @@ import (
 	"strconv"
 )
 
-func NewRouter(store storage.Storage, cfg internal.Config) chi.Router {
+type Router struct {
+	store   storage.Storage
+	signer  Signer
+	baseURL string
+}
+
+func NewRouter(store storage.Storage, cfg internal.Config, signer Signer) chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
@@ -21,13 +27,19 @@ func NewRouter(store storage.Storage, cfg internal.Config) chi.Router {
 	r.Use(middleware.Recoverer)
 	r.Use(gzipHandle)
 
+	router := &Router{
+		store:   store,
+		signer:  signer,
+		baseURL: cfg.BaseURL,
+	}
+
 	r.Route("/", func(r chi.Router) {
-		r.Post("/", ShortURL(store, cfg.BaseURL))
-		r.Get("/{id}", GetURLByID(store))
-		r.Post("/api/shorten", Shorten(store, cfg.BaseURL))
-		r.Get("/api/user/urls", GetUserUrls(store, cfg.BaseURL))
+		r.Post("/", router.ShortURL)
+		r.Get("/{id}", router.GetURLByID)
+		r.Post("/api/shorten", router.Shorten)
+		r.Get("/api/user/urls", router.GetUserUrls)
 		r.Get("/ping", PingDB(store))
-		r.Post("/api/shorten/batch", ShortenBatch(store, cfg.BaseURL))
+		r.Post("/api/shorten/batch", router.ShortenBatch)
 	})
 
 	r.NotFound(func(writer http.ResponseWriter, request *http.Request) {
@@ -53,11 +65,16 @@ type ShortOriginalURL struct {
 	OriginalURL string `json:"original_url"`
 }
 
+type CorrIDShortURL struct {
+	CorrID   string `json:"correlation_id"`
+	ShortURL string `json:"short_url"`
+}
+
 var (
 	ErrSignNotValid = errors.New("sign is not valid")
 )
 
-func getIDAndCookie(store storage.Storage, req *http.Request) (int, *http.Cookie, error) {
+func (r *Router) getIDAndCookie(req *http.Request) (int, *http.Cookie, error) {
 	var userID int
 	var authOK bool
 	var signValue string
@@ -66,19 +83,19 @@ func getIDAndCookie(store storage.Storage, req *http.Request) (int, *http.Cookie
 	sign, err := req.Cookie("token")
 	if err == nil {
 		signValue = sign.Value
-		userID, authOK, err = CheckSign(signValue)
+		userID, authOK, err = r.signer.CheckSign(signValue)
 		if err != nil {
 			log.Println("Error while checking of sign", err)
 			return 0, nil, err
 		}
 	}
 	if err != nil || !authOK {
-		userID, err = store.AddUser(req.Context())
+		userID, err = r.store.AddUser(req.Context())
 		if err != nil {
 			log.Println("Error while adding user", err)
 			return 0, nil, err
 		}
-		signValue, err = CreateSign(userID)
+		signValue, err = r.signer.CreateSign(userID)
 		if err != nil {
 			log.Println("Error while creating of sign", err)
 			return 0, nil, err
@@ -88,12 +105,12 @@ func getIDAndCookie(store storage.Storage, req *http.Request) (int, *http.Cookie
 	return userID, cookie, nil
 }
 
-func getID(req *http.Request) (int, error) {
+func (r *Router) getID(req *http.Request) (int, error) {
 	sign, err := req.Cookie("token")
 	if err != nil {
 		return 0, err
 	}
-	userID, authOK, err := CheckSign(sign.Value)
+	userID, authOK, err := r.signer.CheckSign(sign.Value)
 	if err != nil {
 		log.Println("Error while checking of sign", err)
 		return 0, err
@@ -104,216 +121,176 @@ func getID(req *http.Request) (int, error) {
 	return userID, nil
 }
 
-func Shorten(store storage.Storage, baseURL string) http.HandlerFunc {
-	return func(writer http.ResponseWriter, req *http.Request) {
-		body, err := io.ReadAll(req.Body)
-		if err != nil {
-			http.Error(writer, err.Error(), http.StatusBadRequest)
-			return
-		}
-		if len(body) == 0 {
-			http.Error(writer, "Request body is required", http.StatusBadRequest)
-			return
-		}
-		var shortenRequest ShortenRequest
-		err = json.Unmarshal(body, &shortenRequest)
-		if err != nil {
-			http.Error(writer, "Failed to parse request body", http.StatusBadRequest)
-			return
-		}
-		userID, tokenCookie, err := getIDAndCookie(store, req)
-		if err != nil {
-			http.Error(writer, "Internal server error", http.StatusInternalServerError)
-			return
-		}
-		status := http.StatusCreated
-		ind, err := store.AddURL(req.Context(), shortenRequest.URL, userID)
-		if errors.Is(err, storage.ErrAlreadyExists) {
-			status = http.StatusConflict
-			ind, err = store.GetURLID(req.Context(), shortenRequest.URL)
-			if err != nil {
-				log.Println("Error while getting URL id", err)
-				http.Error(writer, "Internal server error", http.StatusInternalServerError)
-				return
-			}
-		}
-		if err != nil {
-			log.Println("Error while adding URl", err)
-			http.Error(writer, "Internal server error", http.StatusInternalServerError)
-			return
-		}
-		response := ShortenResponse{Result: baseURL + "/" + strconv.Itoa(ind)}
-		respJSON, err := json.Marshal(response)
-		if err != nil {
-			log.Println("Error while serializing response", err)
-			http.Error(writer, "Internal server error", http.StatusInternalServerError)
-			return
-		}
-		if tokenCookie != nil {
-			http.SetCookie(writer, tokenCookie)
-		}
-		writer.Header().Set("content-type", "application/json")
-		writer.WriteHeader(status)
-		writer.Write(respJSON)
+func (r *Router) Shorten(writer http.ResponseWriter, req *http.Request) {
+	var shortenRequest ShortenRequest
+	if !unmarshalRequestJSON(writer, req, &shortenRequest) {
+		return
 	}
+	userID, tokenCookie, err := r.getIDAndCookie(req)
+	if err != nil {
+		http.Error(writer, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	status := http.StatusCreated
+	ind, err := r.store.AddURL(req.Context(), shortenRequest.URL, userID)
+	if errors.Is(err, storage.ErrAlreadyExists) {
+		status = http.StatusConflict
+		ind, err = r.store.GetURLID(req.Context(), shortenRequest.URL)
+		if err != nil {
+			log.Println("Error while getting URL id", err)
+			http.Error(writer, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+	}
+	if err != nil {
+		log.Println("Error while adding URl", err)
+		http.Error(writer, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	response := ShortenResponse{Result: r.baseURL + "/" + strconv.Itoa(ind)}
+	marshalResponseJSON(writer, status, tokenCookie, response)
 }
 
-func ShortURL(store storage.Storage, baseURL string) http.HandlerFunc {
-	return func(writer http.ResponseWriter, req *http.Request) {
-		body, err := io.ReadAll(req.Body)
-		if err != nil {
-			http.Error(writer, err.Error(), http.StatusBadRequest)
-			return
-		}
-		if len(body) == 0 {
-			http.Error(writer, "Request body is required", http.StatusBadRequest)
-			return
-		}
-		userID, tokenCookie, err := getIDAndCookie(store, req)
-		if err != nil {
-			http.Error(writer, "Internal server error", http.StatusInternalServerError)
-			return
-		}
-		url := string(body)
-		status := http.StatusCreated
-		ind, err := store.AddURL(req.Context(), url, userID)
-		if errors.Is(err, storage.ErrAlreadyExists) {
-			status = http.StatusConflict
-			ind, err = store.GetURLID(req.Context(), url)
-			if err != nil {
-				log.Println("Error while getting URL id", err)
-				http.Error(writer, "Internal server error", http.StatusInternalServerError)
-				return
-			}
-		} else if err != nil {
-			log.Println("Error while adding URl", err)
-			http.Error(writer, "Internal server error", http.StatusInternalServerError)
-			return
-		}
-		resp := baseURL + "/" + strconv.Itoa(ind)
-		if tokenCookie != nil {
-			http.SetCookie(writer, tokenCookie)
-		}
-		writer.Header().Set("content-type", "text/html; charset=UTF-8")
-		writer.WriteHeader(status)
-		writer.Write([]byte(resp))
+func marshalResponseJSON(writer http.ResponseWriter, status int, cookie *http.Cookie, response any) {
+	respJSON, err := json.Marshal(response)
+	if err != nil {
+		log.Println("Error while serializing response", err)
+		http.Error(writer, "Internal server error", http.StatusInternalServerError)
+		return
 	}
+	if cookie != nil {
+		http.SetCookie(writer, cookie)
+	}
+	writer.Header().Set("content-type", "application/json")
+	writer.WriteHeader(status)
+	writer.Write(respJSON)
 }
 
-func GetURLByID(store storage.Storage) http.HandlerFunc {
-	return func(writer http.ResponseWriter, req *http.Request) {
-		id := chi.URLParam(req, "id")
-		if id == "" {
-			http.Error(writer, "Url ID is required", http.StatusBadRequest)
-			return
-		}
-		url, err := store.GetURL(req.Context(), id)
-		if err != nil {
-			if errors.Is(err, storage.ErrNotFound) {
-				http.Error(writer, "Not found", http.StatusBadRequest)
-			} else {
-				log.Println("Error while getting URL", err)
-				http.Error(writer, "Internal server error", http.StatusInternalServerError)
-			}
-			return
-		}
-		writer.Header().Set("Content-Type", "text/html; charset=UTF-8")
-		writer.Header().Set("Location", url)
-		writer.WriteHeader(http.StatusTemporaryRedirect)
+func unmarshalRequestJSON(writer http.ResponseWriter, req *http.Request, v any) bool {
+	body, err := io.ReadAll(req.Body)
+	if err != nil {
+		http.Error(writer, err.Error(), http.StatusBadRequest)
+		return false
 	}
+	if len(body) == 0 {
+		http.Error(writer, "Request body is required", http.StatusBadRequest)
+		return false
+	}
+	err = json.Unmarshal(body, v)
+	if err != nil {
+		http.Error(writer, "Failed to parse request body", http.StatusBadRequest)
+		return false
+	}
+	return true
 }
 
-func GetUserUrls(store storage.Storage, baseURL string) http.HandlerFunc {
-	return func(writer http.ResponseWriter, req *http.Request) {
-		userID, err := getID(req)
+func (r *Router) ShortURL(writer http.ResponseWriter, req *http.Request) {
+	body, err := io.ReadAll(req.Body)
+	if err != nil {
+		http.Error(writer, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if len(body) == 0 {
+		http.Error(writer, "Request body is required", http.StatusBadRequest)
+		return
+	}
+	userID, tokenCookie, err := r.getIDAndCookie(req)
+	if err != nil {
+		http.Error(writer, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	url := string(body)
+	status := http.StatusCreated
+	ind, err := r.store.AddURL(req.Context(), url, userID)
+	if errors.Is(err, storage.ErrAlreadyExists) {
+		status = http.StatusConflict
+		ind, err = r.store.GetURLID(req.Context(), url)
 		if err != nil {
-			//http.Error(writer, "Failed to check sign", http.StatusBadRequest)
-			writer.WriteHeader(http.StatusNoContent)
+			log.Println("Error while getting URL id", err)
+			http.Error(writer, "Internal server error", http.StatusInternalServerError)
 			return
 		}
-		urls, err := store.GetUserUrls(req.Context(), userID)
-		if errors.Is(err, storage.ErrNotFound) || len(urls) == 0 {
-			writer.WriteHeader(http.StatusNoContent)
-		} else if err != nil {
-			log.Println("Error while getting URLs", err)
-			http.Error(writer, "Internal server error", http.StatusInternalServerError)
+	} else if err != nil {
+		log.Println("Error while adding URl", err)
+		http.Error(writer, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	resp := r.baseURL + "/" + strconv.Itoa(ind)
+	if tokenCookie != nil {
+		http.SetCookie(writer, tokenCookie)
+	}
+	writer.Header().Set("content-type", "text/html; charset=UTF-8")
+	writer.WriteHeader(status)
+	writer.Write([]byte(resp))
+}
+
+func (r *Router) GetURLByID(writer http.ResponseWriter, req *http.Request) {
+	id := chi.URLParam(req, "id")
+	if id == "" {
+		http.Error(writer, "Url ID is required", http.StatusBadRequest)
+		return
+	}
+	url, err := r.store.GetURL(req.Context(), id)
+	if err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			http.Error(writer, "Not found", http.StatusBadRequest)
 		} else {
-			var urlsList []ShortOriginalURL
-			for urlID, originalURL := range urls {
-				urlsList = append(urlsList, ShortOriginalURL{ShortURL: baseURL + "/" + strconv.Itoa(urlID), OriginalURL: originalURL})
-			}
-			respJSON, err := json.Marshal(urlsList)
-			if err != nil {
-				log.Println("Error while serializing response", err)
-				http.Error(writer, "Internal server error", http.StatusInternalServerError)
-				return
-			}
-			writer.Header().Set("content-type", "application/json")
-			writer.WriteHeader(http.StatusOK)
-			writer.Write(respJSON)
+			log.Println("Error while getting URL", err)
+			http.Error(writer, "Internal server error", http.StatusInternalServerError)
 		}
+		return
 	}
+	writer.Header().Set("Content-Type", "text/html; charset=UTF-8")
+	writer.Header().Set("Location", url)
+	writer.WriteHeader(http.StatusTemporaryRedirect)
 }
 
-func PingDB(store storage.Storage) http.HandlerFunc {
-	return func(writer http.ResponseWriter, req *http.Request) {
-		dbStorage, ok := store.(*storage.DBStorage)
-		if !ok {
-			http.Error(writer, "Failed to check database connection", http.StatusInternalServerError)
-		}
-		err := dbStorage.Ping(req.Context())
-		if err != nil {
-			http.Error(writer, "Failed to check database connection", http.StatusInternalServerError)
-		}
-		writer.WriteHeader(http.StatusOK)
+func (r *Router) GetUserUrls(writer http.ResponseWriter, req *http.Request) {
+	userID, err := r.getID(req)
+	if err != nil {
+		writer.WriteHeader(http.StatusNoContent)
+		return
 	}
+
+	urls, err := r.store.GetUserUrls(req.Context(), userID)
+	if errors.Is(err, storage.ErrNotFound) || len(urls) == 0 {
+		writer.WriteHeader(http.StatusNoContent)
+		return
+	} else if err != nil {
+		log.Println("Error while getting URLs", err)
+		http.Error(writer, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	var urlsList []ShortOriginalURL
+	for urlID, originalURL := range urls {
+		urlsList = append(urlsList, ShortOriginalURL{ShortURL: r.baseURL + "/" + strconv.Itoa(urlID), OriginalURL: originalURL})
+	}
+	marshalResponseJSON(writer, http.StatusOK, nil, urlsList)
 }
 
-func ShortenBatch(store storage.Storage, baseURL string) http.HandlerFunc {
-	return func(writer http.ResponseWriter, req *http.Request) {
-		body, err := io.ReadAll(req.Body)
-		if err != nil {
-			http.Error(writer, err.Error(), http.StatusBadRequest)
-			return
-		}
-		if len(body) == 0 {
-			http.Error(writer, "Request body is required", http.StatusBadRequest)
-			return
-		}
-		var urls []internal.CorrIDOriginalURL
-		err = json.Unmarshal(body, &urls)
-		if err != nil {
-			http.Error(writer, "Failed to parse request body", http.StatusBadRequest)
-			return
-		}
-		userID, tokenCookie, err := getIDAndCookie(store, req)
-		if err != nil {
-			http.Error(writer, "Internal server error", http.StatusInternalServerError)
-			return
-		}
-
-		corrIDUrlIDs, err := store.AddBatch(req.Context(), urls, userID)
-		if err != nil {
-			log.Println("Error while adding URls", err)
-			http.Error(writer, "Internal server error", http.StatusInternalServerError)
-			return
-		}
-		shortenUrls := make([]internal.CorrIDShortURL, len(corrIDUrlIDs))
-		for i, v := range corrIDUrlIDs {
-			u := internal.CorrIDShortURL{CorrID: v.CorrID, ShortURL: baseURL + "/" + strconv.Itoa(v.URLID)}
-			shortenUrls[i] = u
-		}
-		respJSON, err := json.Marshal(shortenUrls)
-		if err != nil {
-			log.Println("Error while serializing response", err)
-			http.Error(writer, "Internal server error", http.StatusInternalServerError)
-			return
-		}
-		if tokenCookie != nil {
-			http.SetCookie(writer, tokenCookie)
-		}
-		writer.Header().Set("content-type", "application/json")
-		writer.WriteHeader(http.StatusCreated)
-		writer.Write(respJSON)
+func (r *Router) ShortenBatch(writer http.ResponseWriter, req *http.Request) {
+	var urls []internal.CorrIDOriginalURL
+	if !unmarshalRequestJSON(writer, req, &urls) {
+		return
 	}
+	userID, tokenCookie, err := r.getIDAndCookie(req)
+	if err != nil {
+		http.Error(writer, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	corrIDUrlIDs, err := r.store.AddBatch(req.Context(), urls, userID)
+	if err != nil {
+		log.Println("Error while adding URls", err)
+		http.Error(writer, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	shortenUrls := make([]CorrIDShortURL, len(corrIDUrlIDs))
+	for i, v := range corrIDUrlIDs {
+		u := CorrIDShortURL{CorrID: v.CorrID, ShortURL: r.baseURL + "/" + strconv.Itoa(v.URLID)}
+		shortenUrls[i] = u
+	}
+	marshalResponseJSON(writer, http.StatusCreated, tokenCookie, shortenUrls)
 }

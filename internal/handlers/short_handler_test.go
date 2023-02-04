@@ -60,7 +60,7 @@ func TestGetUrlById(t *testing.T) {
 	cfg := internal.Config{Address: ":8080", BaseURL: "http://localhost:8080"}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := NewRouter(tt.store, cfg)
+			r := NewRouter(tt.store, cfg, Signer{SecretKey: []byte("secret again")})
 			ts := httptest.NewServer(r)
 			defer ts.Close()
 
@@ -116,7 +116,7 @@ func TestShortUrl(t *testing.T) {
 	cfg := internal.Config{Address: ":8080", BaseURL: "http://localhost:8080"}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := NewRouter(tt.store, cfg)
+			r := NewRouter(tt.store, cfg, Signer{SecretKey: []byte("sikrit")})
 			ts := httptest.NewServer(r)
 			defer ts.Close()
 
@@ -174,7 +174,7 @@ func TestShorten(t *testing.T) {
 	cfg := internal.Config{Address: ":8080", BaseURL: "http://localhost:8080"}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := NewRouter(tt.store, cfg)
+			r := NewRouter(tt.store, cfg, Signer{SecretKey: []byte("secret")})
 			ts := httptest.NewServer(r)
 			defer ts.Close()
 
@@ -201,6 +201,9 @@ func TestGetUserUrls(t *testing.T) {
 		statusCode int
 		resp       []ShortOriginalURL
 	}
+	signer := Signer{SecretKey: []byte("another secret key")}
+	token, err := signer.CreateSign(8)
+	require.NoError(t, err)
 	tests := []struct {
 		name  string
 		token string
@@ -209,7 +212,7 @@ func TestGetUserUrls(t *testing.T) {
 	}{
 		{
 			name:  "Positive test",
-			token: "00000008c59cd7da48cb16f923339451ce28e0369dd9b3f2588fa965bb16b22bacb7bbae",
+			token: token,
 			store: &mockStorage{userUrlsEmpty: false},
 			want: want{200, []ShortOriginalURL{
 				{ShortURL: "http://localhost:8080/8", OriginalURL: "http://test1.ru"},
@@ -225,7 +228,7 @@ func TestGetUserUrls(t *testing.T) {
 		},
 		{
 			name:  "Negative test with empty urls",
-			token: "00000008c59cd7da48cb16f923339451ce28e0369dd9b3f2588fa965bb16b22bacb7bbae",
+			token: token,
 			store: &mockStorage{userUrlsEmpty: true},
 			want:  want{statusCode: 204},
 		},
@@ -233,7 +236,7 @@ func TestGetUserUrls(t *testing.T) {
 	cfg := internal.Config{Address: ":8080", BaseURL: "http://localhost:8080"}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := NewRouter(tt.store, cfg)
+			r := NewRouter(tt.store, cfg, signer)
 			ts := httptest.NewServer(r)
 			defer ts.Close()
 
@@ -262,7 +265,7 @@ func TestGetUserUrls(t *testing.T) {
 func TestShortenBatch(t *testing.T) {
 	type want struct {
 		statusCode int
-		resp       []internal.CorrIDShortURL
+		resp       []CorrIDShortURL
 	}
 	tests := []struct {
 		name    string
@@ -277,7 +280,7 @@ func TestShortenBatch(t *testing.T) {
 				{CorrID: "str1", URLID: 1},
 				{CorrID: "str2", URLID: 2},
 			}},
-			want: want{201, []internal.CorrIDShortURL{
+			want: want{201, []CorrIDShortURL{
 				{CorrID: "str1", ShortURL: "http://localhost:8080/1"},
 				{CorrID: "str2", ShortURL: "http://localhost:8080/2"},
 			}},
@@ -298,7 +301,7 @@ func TestShortenBatch(t *testing.T) {
 	cfg := internal.Config{Address: ":8080", BaseURL: "http://localhost:8080"}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := NewRouter(tt.store, cfg)
+			r := NewRouter(tt.store, cfg, Signer{SecretKey: []byte("my secret key")})
 			ts := httptest.NewServer(r)
 			defer ts.Close()
 
@@ -310,7 +313,7 @@ func TestShortenBatch(t *testing.T) {
 			if tt.want.resp != nil {
 				respBody, err := io.ReadAll(resp.Body)
 				require.NoError(t, err)
-				var result []internal.CorrIDShortURL
+				var result []CorrIDShortURL
 				err = json.Unmarshal(respBody, &result)
 				require.NoError(t, err)
 				assert.ElementsMatch(t, tt.want.resp, result)

@@ -168,6 +168,7 @@ func (d DBStorage) Close() {
 	d.insertURL.Close()
 	d.selectURLByID.Close()
 	d.selectUrlsByUser.Close()
+	d.selectURLID.Close()
 	d.DB.Close()
 }
 
