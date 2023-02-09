@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/MalyginaEkaterina/shortener/internal"
+	"github.com/MalyginaEkaterina/shortener/internal/service"
 	"github.com/MalyginaEkaterina/shortener/internal/storage"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -17,9 +18,10 @@ type Router struct {
 	store   storage.Storage
 	signer  Signer
 	baseURL string
+	service service.Service
 }
 
-func NewRouter(store storage.Storage, cfg internal.Config, signer Signer) chi.Router {
+func NewRouter(store storage.Storage, cfg internal.Config, signer Signer, service service.Service) chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
@@ -31,6 +33,7 @@ func NewRouter(store storage.Storage, cfg internal.Config, signer Signer) chi.Ro
 		store:   store,
 		signer:  signer,
 		baseURL: cfg.BaseURL,
+		service: service,
 	}
 
 	r.Route("/", func(r chi.Router) {
@@ -131,21 +134,17 @@ func (r *Router) Shorten(writer http.ResponseWriter, req *http.Request) {
 		http.Error(writer, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	status := http.StatusCreated
-	ind, err := r.store.AddURL(req.Context(), shortenRequest.URL, userID)
-	if errors.Is(err, storage.ErrAlreadyExists) {
-		status = http.StatusConflict
-		ind, err = r.store.GetURLID(req.Context(), shortenRequest.URL)
-		if err != nil {
-			log.Println("Error while getting URL id", err)
-			http.Error(writer, "Internal server error", http.StatusInternalServerError)
-			return
-		}
-	}
+	ind, alreadyExists, err := r.service.AddURL(req.Context(), shortenRequest.URL, userID)
 	if err != nil {
 		log.Println("Error while adding URl", err)
 		http.Error(writer, "Internal server error", http.StatusInternalServerError)
 		return
+	}
+	var status int
+	if alreadyExists {
+		status = http.StatusConflict
+	} else {
+		status = http.StatusCreated
 	}
 	response := ShortenResponse{Result: r.baseURL + "/" + strconv.Itoa(ind)}
 	marshalResponseJSON(writer, status, tokenCookie, response)
@@ -200,20 +199,17 @@ func (r *Router) ShortURL(writer http.ResponseWriter, req *http.Request) {
 		return
 	}
 	url := string(body)
-	status := http.StatusCreated
-	ind, err := r.store.AddURL(req.Context(), url, userID)
-	if errors.Is(err, storage.ErrAlreadyExists) {
-		status = http.StatusConflict
-		ind, err = r.store.GetURLID(req.Context(), url)
-		if err != nil {
-			log.Println("Error while getting URL id", err)
-			http.Error(writer, "Internal server error", http.StatusInternalServerError)
-			return
-		}
-	} else if err != nil {
+	ind, alreadyExists, err := r.service.AddURL(req.Context(), url, userID)
+	if err != nil {
 		log.Println("Error while adding URl", err)
 		http.Error(writer, "Internal server error", http.StatusInternalServerError)
 		return
+	}
+	var status int
+	if alreadyExists {
+		status = http.StatusConflict
+	} else {
+		status = http.StatusCreated
 	}
 	resp := r.baseURL + "/" + strconv.Itoa(ind)
 	if tokenCookie != nil {

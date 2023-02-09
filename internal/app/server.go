@@ -4,6 +4,7 @@ import (
 	"flag"
 	"github.com/MalyginaEkaterina/shortener/internal"
 	"github.com/MalyginaEkaterina/shortener/internal/handlers"
+	"github.com/MalyginaEkaterina/shortener/internal/service"
 	"github.com/MalyginaEkaterina/shortener/internal/storage"
 	"github.com/caarlos0/env/v6"
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -26,7 +27,24 @@ func Start() {
 	if err != nil {
 		log.Fatal("Error while parsing env", err)
 	}
+
+	store := initStore(cfg)
+	defer store.Close()
+
+	secretKey, err := getSecret(secretFilePath)
+	if err != nil {
+		log.Fatal("Error while reading secret key", err)
+	}
+	signer := handlers.Signer{SecretKey: secretKey}
+	urlService := service.URLService{Store: store}
+	r := handlers.NewRouter(store, cfg, signer, urlService)
+	log.Printf("Started server on %s\n", cfg.Address)
+	log.Fatal(http.ListenAndServe(cfg.Address, r))
+}
+
+func initStore(cfg internal.Config) storage.Storage {
 	var store storage.Storage
+	var err error
 	if cfg.DatabaseDSN != "" {
 		store, err = storage.NewDBStorage(cfg.DatabaseDSN)
 		if err != nil {
@@ -43,18 +61,7 @@ func Start() {
 		store = &storage.MemoryStorage{UserUrls: make(map[int][]int), UrlsID: make(map[string]int)}
 		log.Printf("Using memory storage\n")
 	}
-	defer store.Close()
-
-	secretKey, err := getSecret(secretFilePath)
-	if err != nil {
-		log.Fatal("Error while reading secret key", err)
-	}
-	signer := handlers.Signer{
-		SecretKey: secretKey,
-	}
-	r := handlers.NewRouter(store, cfg, signer)
-	log.Printf("Started server on %s\n", cfg.Address)
-	log.Fatal(http.ListenAndServe(cfg.Address, r))
+	return store
 }
 
 func getSecret(path string) ([]byte, error) {

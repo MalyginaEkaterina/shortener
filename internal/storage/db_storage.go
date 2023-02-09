@@ -60,11 +60,25 @@ func NewDBStorage(dsn string) (*DBStorage, error) {
 }
 
 func initTables(db *sql.DB) error {
-	_, err := db.Exec("CREATE TABLE IF NOT EXISTS users (id serial PRIMARY KEY)")
+	const createUsersTableSQL = `
+		CREATE TABLE IF NOT EXISTS users (
+			id serial PRIMARY KEY
+		)
+	`
+	const createUrlsTableSQL = `
+		CREATE TABLE IF NOT EXISTS urls (
+			id bigserial PRIMARY KEY,
+			original_url varchar,
+			user_id integer,
+			UNIQUE(original_url),
+			FOREIGN KEY (user_id) REFERENCES users (id)
+	   )
+	`
+	_, err := db.Exec(createUsersTableSQL)
 	if err != nil {
 		return err
 	}
-	_, err = db.Exec("CREATE TABLE IF NOT EXISTS urls (id bigserial PRIMARY KEY, original_url varchar, user_id integer, UNIQUE(original_url), FOREIGN KEY (user_id) REFERENCES users (id))")
+	_, err = db.Exec(createUrlsTableSQL)
 	if err != nil {
 		return err
 	}

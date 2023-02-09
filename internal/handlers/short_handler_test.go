@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/MalyginaEkaterina/shortener/internal"
+	"github.com/MalyginaEkaterina/shortener/internal/service"
 	"github.com/MalyginaEkaterina/shortener/internal/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -60,7 +61,7 @@ func TestGetUrlById(t *testing.T) {
 	cfg := internal.Config{Address: ":8080", BaseURL: "http://localhost:8080"}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := NewRouter(tt.store, cfg, Signer{SecretKey: []byte("secret again")})
+			r := NewRouter(tt.store, cfg, Signer{SecretKey: []byte("secret again")}, service.URLService{Store: tt.store})
 			ts := httptest.NewServer(r)
 			defer ts.Close()
 
@@ -116,7 +117,7 @@ func TestShortUrl(t *testing.T) {
 	cfg := internal.Config{Address: ":8080", BaseURL: "http://localhost:8080"}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := NewRouter(tt.store, cfg, Signer{SecretKey: []byte("sikrit")})
+			r := NewRouter(tt.store, cfg, Signer{SecretKey: []byte("sikrit")}, service.URLService{Store: tt.store})
 			ts := httptest.NewServer(r)
 			defer ts.Close()
 
@@ -174,7 +175,7 @@ func TestShorten(t *testing.T) {
 	cfg := internal.Config{Address: ":8080", BaseURL: "http://localhost:8080"}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := NewRouter(tt.store, cfg, Signer{SecretKey: []byte("secret")})
+			r := NewRouter(tt.store, cfg, Signer{SecretKey: []byte("secret")}, service.URLService{Store: tt.store})
 			ts := httptest.NewServer(r)
 			defer ts.Close()
 
@@ -236,7 +237,7 @@ func TestGetUserUrls(t *testing.T) {
 	cfg := internal.Config{Address: ":8080", BaseURL: "http://localhost:8080"}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := NewRouter(tt.store, cfg, signer)
+			r := NewRouter(tt.store, cfg, signer, service.URLService{Store: tt.store})
 			ts := httptest.NewServer(r)
 			defer ts.Close()
 
@@ -301,7 +302,7 @@ func TestShortenBatch(t *testing.T) {
 	cfg := internal.Config{Address: ":8080", BaseURL: "http://localhost:8080"}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := NewRouter(tt.store, cfg, Signer{SecretKey: []byte("my secret key")})
+			r := NewRouter(tt.store, cfg, Signer{SecretKey: []byte("my secret key")}, service.URLService{Store: tt.store})
 			ts := httptest.NewServer(r)
 			defer ts.Close()
 
