@@ -9,6 +9,7 @@ import (
 var (
 	ErrNotFound      = errors.New("not found")
 	ErrAlreadyExists = errors.New("already exists")
+	ErrDeleted       = errors.New("was deleted")
 )
 
 type Storage interface {
@@ -18,5 +19,6 @@ type Storage interface {
 	GetURL(ctx context.Context, id string) (string, error)
 	GetUserUrls(ctx context.Context, userID int) (map[int]string, error)
 	AddBatch(ctx context.Context, urls []internal.CorrIDOriginalURL, userID int) ([]internal.CorrIDUrlID, error)
+	DeleteBatch(ctx context.Context, ids []internal.IDToDelete) error
 	Close()
 }
