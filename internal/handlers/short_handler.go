@@ -15,13 +15,14 @@ import (
 )
 
 type Router struct {
-	store   storage.Storage
-	signer  Signer
-	baseURL string
-	service service.Service
+	store        storage.Storage
+	signer       Signer
+	baseURL      string
+	service      service.Service
+	deleteWorker service.DeleteWorker
 }
 
-func NewRouter(store storage.Storage, cfg internal.Config, signer Signer, service service.Service) chi.Router {
+func NewRouter(store storage.Storage, cfg internal.Config, signer Signer, service service.Service, deleteWorker service.DeleteWorker) chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
@@ -30,10 +31,11 @@ func NewRouter(store storage.Storage, cfg internal.Config, signer Signer, servic
 	r.Use(gzipHandle)
 
 	router := &Router{
-		store:   store,
-		signer:  signer,
-		baseURL: cfg.BaseURL,
-		service: service,
+		store:        store,
+		signer:       signer,
+		baseURL:      cfg.BaseURL,
+		service:      service,
+		deleteWorker: deleteWorker,
 	}
 
 	r.Route("/", func(r chi.Router) {
@@ -43,6 +45,7 @@ func NewRouter(store storage.Storage, cfg internal.Config, signer Signer, servic
 		r.Get("/api/user/urls", router.GetUserUrls)
 		r.Get("/ping", PingDB(store))
 		r.Post("/api/shorten/batch", router.ShortenBatch)
+		r.Delete("/api/user/urls", router.DeleteBatch)
 	})
 
 	r.NotFound(func(writer http.ResponseWriter, request *http.Request) {
@@ -126,7 +129,7 @@ func (r *Router) getID(req *http.Request) (int, error) {
 
 func (r *Router) Shorten(writer http.ResponseWriter, req *http.Request) {
 	var shortenRequest ShortenRequest
-	if !unmarshalRequestJSON(writer, req, &shortenRequest) {
+	if !unmarshalRequest(writer, req, &shortenRequest) {
 		return
 	}
 	userID, tokenCookie, err := r.getIDAndCookie(req)
@@ -147,10 +150,10 @@ func (r *Router) Shorten(writer http.ResponseWriter, req *http.Request) {
 		status = http.StatusCreated
 	}
 	response := ShortenResponse{Result: r.baseURL + "/" + strconv.Itoa(ind)}
-	marshalResponseJSON(writer, status, tokenCookie, response)
+	marshalResponseAndSetCookie(writer, status, tokenCookie, response)
 }
 
-func marshalResponseJSON(writer http.ResponseWriter, status int, cookie *http.Cookie, response any) {
+func marshalResponseAndSetCookie(writer http.ResponseWriter, status int, cookie *http.Cookie, response any) {
 	respJSON, err := json.Marshal(response)
 	if err != nil {
 		log.Println("Error while serializing response", err)
@@ -165,7 +168,7 @@ func marshalResponseJSON(writer http.ResponseWriter, status int, cookie *http.Co
 	writer.Write(respJSON)
 }
 
-func unmarshalRequestJSON(writer http.ResponseWriter, req *http.Request, v any) bool {
+func unmarshalRequest(writer http.ResponseWriter, req *http.Request, v any) bool {
 	body, err := io.ReadAll(req.Body)
 	if err != nil {
 		http.Error(writer, err.Error(), http.StatusBadRequest)
@@ -230,6 +233,8 @@ func (r *Router) GetURLByID(writer http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		if errors.Is(err, storage.ErrNotFound) {
 			http.Error(writer, "Not found", http.StatusBadRequest)
+		} else if errors.Is(err, storage.ErrDeleted) {
+			http.Error(writer, "Was deleted", http.StatusGone)
 		} else {
 			log.Println("Error while getting URL", err)
 			http.Error(writer, "Internal server error", http.StatusInternalServerError)
@@ -262,12 +267,12 @@ func (r *Router) GetUserUrls(writer http.ResponseWriter, req *http.Request) {
 	for urlID, originalURL := range urls {
 		urlsList = append(urlsList, ShortOriginalURL{ShortURL: r.baseURL + "/" + strconv.Itoa(urlID), OriginalURL: originalURL})
 	}
-	marshalResponseJSON(writer, http.StatusOK, nil, urlsList)
+	marshalResponseAndSetCookie(writer, http.StatusOK, nil, urlsList)
 }
 
 func (r *Router) ShortenBatch(writer http.ResponseWriter, req *http.Request) {
 	var urls []internal.CorrIDOriginalURL
-	if !unmarshalRequestJSON(writer, req, &urls) {
+	if !unmarshalRequest(writer, req, &urls) {
 		return
 	}
 	userID, tokenCookie, err := r.getIDAndCookie(req)
@@ -288,5 +293,31 @@ func (r *Router) ShortenBatch(writer http.ResponseWriter, req *http.Request) {
 		u := CorrIDShortURL{CorrID: v.CorrID, ShortURL: r.baseURL + "/" + strconv.Itoa(v.URLID)}
 		shortenUrls[i] = u
 	}
-	marshalResponseJSON(writer, http.StatusCreated, tokenCookie, shortenUrls)
+	marshalResponseAndSetCookie(writer, http.StatusCreated, tokenCookie, shortenUrls)
+}
+
+func (r *Router) DeleteBatch(writer http.ResponseWriter, req *http.Request) {
+	var urlIDs []string
+	if !unmarshalRequest(writer, req, &urlIDs) {
+		return
+	}
+
+	userID, err := r.getID(req)
+	if err != nil {
+		http.Error(writer, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	idsToDelete := make([]internal.IDToDelete, len(urlIDs))
+
+	for i, idStr := range urlIDs {
+		id, err := strconv.Atoi(idStr)
+		if err != nil {
+			http.Error(writer, err.Error(), http.StatusBadRequest)
+			return
+		}
+		idsToDelete[i] = internal.IDToDelete{ID: id, UserID: userID}
+	}
+	r.deleteWorker.Delete(idsToDelete)
+	writer.WriteHeader(http.StatusAccepted)
 }
