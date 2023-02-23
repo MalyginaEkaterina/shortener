@@ -19,10 +19,10 @@ type Router struct {
 	signer       Signer
 	baseURL      string
 	service      service.Service
-	deleteWorker *service.DeleteWorker
+	deleteWorker service.DeleteWorker
 }
 
-func NewRouter(store storage.Storage, cfg internal.Config, signer Signer, service service.Service, deleteWorker *service.DeleteWorker) chi.Router {
+func NewRouter(store storage.Storage, cfg internal.Config, signer Signer, service service.Service, deleteWorker service.DeleteWorker) chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
