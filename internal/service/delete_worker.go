@@ -78,6 +78,7 @@ func (w *DeleteURL) Run(ctx context.Context) {
 				w.buf = append(w.buf, v)
 				if len(w.buf) >= deleteChunkSize {
 					flushSignal.Notify()
+					flushTick = time.NewTicker(flushAfter)
 				}
 			}()
 		case <-flushTick.C:
