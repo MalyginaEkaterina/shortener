@@ -12,21 +12,28 @@ import (
 	"io"
 	"log"
 	"net/http"
+	_ "net/http/pprof"
 	"os"
 )
 
 func Start() {
 	var cfg internal.Config
+	var pprofAddress string
 	var secretFilePath string
 	flag.StringVar(&cfg.Address, "a", "localhost:8080", "address to listen on")
 	flag.StringVar(&cfg.BaseURL, "b", "http://localhost:8080", "base address for short URL")
 	flag.StringVar(&cfg.FileStoragePath, "f", "", "file storage path")
 	flag.StringVar(&cfg.DatabaseDSN, "d", "", "database connection string")
 	flag.StringVar(&secretFilePath, "s", "", "path to file with secret")
+	flag.StringVar(&pprofAddress, "pprof", "localhost:6060", "address to export pprof on")
 	flag.Parse()
 	err := env.Parse(&cfg)
 	if err != nil {
 		log.Fatal("Error while parsing env", err)
+	}
+
+	if pprofAddress != "" {
+		go http.ListenAndServe(pprofAddress, nil)
 	}
 
 	store := initStore(cfg)
@@ -65,7 +72,7 @@ func initStore(cfg internal.Config) storage.Storage {
 		}
 		log.Printf("Using cached file storage %s\n", cfg.FileStoragePath)
 	} else {
-		store = &storage.MemoryStorage{UserUrls: make(map[int][]int), UrlsID: make(map[string]int)}
+		store = storage.NewMemoryStorage()
 		log.Printf("Using memory storage\n")
 	}
 	return store

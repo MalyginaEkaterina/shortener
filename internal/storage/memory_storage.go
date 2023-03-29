@@ -10,19 +10,23 @@ import (
 
 type URL struct {
 	url       string
-	userID    int
+	userID    int32
 	isDeleted bool
 }
 
 type MemoryStorage struct {
 	urls      []URL
 	userCount atomic.Int32
-	UserUrls  map[int][]int
-	UrlsID    map[string]int
+	UserUrls  map[int32][]int32
+	UrlsID    map[string]int32
 	mutex     sync.RWMutex
 }
 
 var _ Storage = (*MemoryStorage)(nil)
+
+func NewMemoryStorage() *MemoryStorage {
+	return &MemoryStorage{UserUrls: make(map[int32][]int32), UrlsID: make(map[string]int32)}
+}
 
 func (s *MemoryStorage) AddUser(_ context.Context) (int, error) {
 	return int(s.userCount.Add(1)), nil
@@ -35,10 +39,10 @@ func (s *MemoryStorage) AddURL(_ context.Context, url string, userID int) (int, 
 	if ok {
 		return 0, ErrAlreadyExists
 	}
-	s.urls = append(s.urls, URL{url: url, userID: userID, isDeleted: false})
+	s.urls = append(s.urls, URL{url: url, userID: int32(userID), isDeleted: false})
 	urlID := len(s.urls) - 1
-	s.UrlsID[url] = urlID
-	s.UserUrls[userID] = append(s.UserUrls[userID], urlID)
+	s.UrlsID[url] = int32(urlID)
+	s.UserUrls[int32(userID)] = append(s.UserUrls[int32(userID)], int32(urlID))
 	return urlID, nil
 }
 
@@ -60,19 +64,19 @@ func (s *MemoryStorage) GetURLID(_ context.Context, url string) (int, error) {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 	id := s.UrlsID[url]
-	return id, nil
+	return int(id), nil
 }
 
 func (s *MemoryStorage) GetUserUrls(_ context.Context, userID int) (map[int]string, error) {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
-	urlIDs, ok := s.UserUrls[userID]
+	urlIDs, ok := s.UserUrls[int32(userID)]
 	if !ok {
 		return nil, ErrNotFound
 	}
 	res := make(map[int]string)
 	for _, urlID := range urlIDs {
-		res[urlID] = s.urls[urlID].url
+		res[int(urlID)] = s.urls[urlID].url
 	}
 	return res, nil
 }
@@ -83,9 +87,9 @@ func (s *MemoryStorage) AddBatch(_ context.Context, urls []internal.CorrIDOrigin
 	var res []internal.CorrIDUrlID
 	for _, v := range urls {
 		corrIDUrlID := internal.CorrIDUrlID{CorrID: v.CorrID}
-		s.urls = append(s.urls, URL{url: v.OriginalURL, userID: userID, isDeleted: false})
+		s.urls = append(s.urls, URL{url: v.OriginalURL, userID: int32(userID), isDeleted: false})
 		corrIDUrlID.URLID = len(s.urls) - 1
-		s.UserUrls[userID] = append(s.UserUrls[userID], corrIDUrlID.URLID)
+		s.UserUrls[int32(userID)] = append(s.UserUrls[int32(userID)], int32(corrIDUrlID.URLID))
 		res = append(res, corrIDUrlID)
 	}
 	return res, nil
@@ -97,7 +101,7 @@ func (s *MemoryStorage) DeleteBatch(_ context.Context, ids []internal.IDToDelete
 	for _, v := range ids {
 		if v.ID >= 0 || v.ID < len(s.urls) {
 			url := s.urls[v.ID]
-			if url.userID == v.UserID {
+			if url.userID == int32(v.UserID) {
 				url.isDeleted = true
 				s.urls[v.ID] = url
 			}

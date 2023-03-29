@@ -59,7 +59,7 @@ func NewCachedFileStorage(filename string) (*CachedFileStorage, error) {
 		if err != nil {
 			return nil, err
 		}
-		url := URL{userID: userID, url: d[2], isDeleted: isDeleted}
+		url := URL{userID: int32(userID), url: d[2], isDeleted: isDeleted}
 		urls[id] = url
 		urlsID[d[1]] = id
 		userUrls[userID] = append(userUrls[userID], id)
@@ -181,7 +181,7 @@ func (s *CachedFileStorage) DeleteBatch(_ context.Context, ids []internal.IDToDe
 	for id, url := range s.urls {
 		userID, deleted := idsMap[id]
 		if deleted {
-			if userID != url.userID {
+			if int32(userID) != url.userID {
 				deleted = false
 			}
 		}
@@ -223,7 +223,7 @@ func (s *CachedFileStorage) setDeletedInCache(id int) {
 func (s *CachedFileStorage) addToCache(userID int, url string, id int) {
 	s.cacheMutex.Lock()
 	defer s.cacheMutex.Unlock()
-	s.urls[id] = URL{userID: userID, url: url, isDeleted: false}
+	s.urls[id] = URL{userID: int32(userID), url: url, isDeleted: false}
 	s.urlsID[url] = id
 	s.userUrls[userID] = append(s.userUrls[userID], id)
 }
