@@ -9,3 +9,8 @@ type CorrIDUrlID struct {
 	CorrID string
 	URLID  int
 }
+
+type IDToDelete struct {
+	ID     int
+	UserID int
+}

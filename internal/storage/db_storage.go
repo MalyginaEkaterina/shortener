@@ -16,6 +16,7 @@ type DBStorage struct {
 	selectURLByID    *sql.Stmt
 	selectUrlsByUser *sql.Stmt
 	selectURLID      *sql.Stmt
+	deleteURL        *sql.Stmt
 }
 
 var _ Storage = (*DBStorage)(nil)
@@ -37,7 +38,7 @@ func NewDBStorage(dsn string) (*DBStorage, error) {
 	if err != nil {
 		return nil, err
 	}
-	stmtSelectURLByID, err := db.Prepare("SELECT original_url FROM urls WHERE id = $1")
+	stmtSelectURLByID, err := db.Prepare("SELECT original_url, is_deleted FROM urls WHERE id = $1")
 	if err != nil {
 		return nil, err
 	}
@@ -49,6 +50,10 @@ func NewDBStorage(dsn string) (*DBStorage, error) {
 	if err != nil {
 		return nil, err
 	}
+	stmtDeleteURL, err := db.Prepare("UPDATE urls SET is_deleted = true WHERE id = $1 AND user_id = $2")
+	if err != nil {
+		return nil, err
+	}
 	return &DBStorage{
 		DB:               db,
 		insertUser:       stmtInsertUser,
@@ -56,6 +61,7 @@ func NewDBStorage(dsn string) (*DBStorage, error) {
 		selectURLByID:    stmtSelectURLByID,
 		selectUrlsByUser: stmtSelectUrlsByUser,
 		selectURLID:      stmtSelectURLID,
+		deleteURL:        stmtDeleteURL,
 	}, nil
 }
 
@@ -70,6 +76,7 @@ func initTables(db *sql.DB) error {
 			id bigserial PRIMARY KEY,
 			original_url varchar,
 			user_id integer,
+			is_deleted boolean DEFAULT false,
 			UNIQUE(original_url),
 			FOREIGN KEY (user_id) REFERENCES users (id)
 	   )
@@ -120,9 +127,15 @@ func (d DBStorage) GetURLID(ctx context.Context, url string) (int, error) {
 func (d DBStorage) GetURL(ctx context.Context, id string) (string, error) {
 	row := d.selectURLByID.QueryRowContext(ctx, id)
 	var originalURL string
-	err := row.Scan(&originalURL)
-	if err != nil {
+	var isDeleted bool
+	err := row.Scan(&originalURL, &isDeleted)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	} else if err != nil {
 		return "", err
+	}
+	if isDeleted {
+		return "", ErrDeleted
 	}
 	return originalURL, nil
 }
@@ -177,12 +190,36 @@ func (d DBStorage) AddBatch(ctx context.Context, urls []internal.CorrIDOriginalU
 	return corrURLIDs, nil
 }
 
+func (d DBStorage) DeleteBatch(ctx context.Context, ids []internal.IDToDelete) error {
+	tx, err := d.DB.Begin()
+	if err != nil {
+		log.Println("Begin transaction error", err)
+		return err
+	}
+	defer tx.Rollback()
+
+	txStmt := tx.StmtContext(ctx, d.deleteURL)
+	for _, v := range ids {
+		_, err = txStmt.ExecContext(ctx, v.ID, v.UserID)
+		if err != nil {
+			return err
+		}
+	}
+	err = tx.Commit()
+	if err != nil {
+		log.Println("Commit error", err)
+		return err
+	}
+	return nil
+}
+
 func (d DBStorage) Close() {
 	d.insertUser.Close()
 	d.insertURL.Close()
 	d.selectURLByID.Close()
 	d.selectUrlsByUser.Close()
 	d.selectURLID.Close()
+	d.deleteURL.Close()
 	d.DB.Close()
 }
 

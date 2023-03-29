@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"flag"
 	"github.com/MalyginaEkaterina/shortener/internal"
 	"github.com/MalyginaEkaterina/shortener/internal/handlers"
@@ -35,9 +36,15 @@ func Start() {
 	if err != nil {
 		log.Fatal("Error while reading secret key", err)
 	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	signer := handlers.Signer{SecretKey: secretKey}
 	urlService := service.URLService{Store: store}
-	r := handlers.NewRouter(store, cfg, signer, urlService)
+	deleteWorker := service.NewDeleteWorker(store)
+	go deleteWorker.Run(ctx)
+	r := handlers.NewRouter(store, cfg, signer, urlService, deleteWorker)
 	log.Printf("Started server on %s\n", cfg.Address)
 	log.Fatal(http.ListenAndServe(cfg.Address, r))
 }
