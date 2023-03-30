@@ -102,6 +102,12 @@ func (w *DeleteURL) Run(ctx context.Context) {
 	}
 }
 
+func (w *DeleteURL) Delete(ids []internal.IDToDelete) {
+	for _, v := range ids {
+		w.inCh <- v
+	}
+}
+
 func (w *DeleteURL) flushAll() error {
 	w.mutex.Lock()
 	defer w.mutex.Unlock()
@@ -134,10 +140,4 @@ func (w *DeleteURL) flushBuf() error {
 	}
 	w.buf = w.buf[:0]
 	return nil
-}
-
-func (w *DeleteURL) Delete(ids []internal.IDToDelete) {
-	for _, v := range ids {
-		w.inCh <- v
-	}
 }

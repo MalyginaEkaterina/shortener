@@ -11,6 +11,8 @@ type Service interface {
 	AddURL(ctx context.Context, url string, userID int) (int, bool, error)
 }
 
+var _ Service = (*URLService)(nil)
+
 type URLService struct {
 	Store storage.Storage
 }
@@ -28,5 +30,3 @@ func (u URLService) AddURL(ctx context.Context, url string, userID int) (int, bo
 	}
 	return ind, false, nil
 }
-
-var _ Service = (*URLService)(nil)

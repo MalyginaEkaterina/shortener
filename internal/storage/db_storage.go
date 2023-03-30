@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+var _ Storage = (*DBStorage)(nil)
+
 type DBStorage struct {
 	DB               *sql.DB
 	insertUser       *sql.Stmt
@@ -18,8 +20,6 @@ type DBStorage struct {
 	selectURLID      *sql.Stmt
 	deleteURL        *sql.Stmt
 }
-
-var _ Storage = (*DBStorage)(nil)
 
 func NewDBStorage(dsn string) (*DBStorage, error) {
 	db, err := sql.Open("pgx", dsn)

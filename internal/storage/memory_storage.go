@@ -14,6 +14,8 @@ type URL struct {
 	isDeleted bool
 }
 
+var _ Storage = (*MemoryStorage)(nil)
+
 type MemoryStorage struct {
 	urls      []URL
 	userCount atomic.Int32
@@ -21,8 +23,6 @@ type MemoryStorage struct {
 	UrlsID    map[string]int32
 	mutex     sync.RWMutex
 }
-
-var _ Storage = (*MemoryStorage)(nil)
 
 func NewMemoryStorage() *MemoryStorage {
 	return &MemoryStorage{UserUrls: make(map[int32][]int32), UrlsID: make(map[string]int32)}

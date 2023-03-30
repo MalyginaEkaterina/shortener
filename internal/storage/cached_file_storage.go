@@ -11,6 +11,8 @@ import (
 	"sync"
 )
 
+var _ Storage = (*CachedFileStorage)(nil)
+
 type CachedFileStorage struct {
 	file     *os.File
 	filename string
@@ -24,8 +26,6 @@ type CachedFileStorage struct {
 	urlsID     map[string]int
 	cacheMutex sync.RWMutex
 }
-
-var _ Storage = (*CachedFileStorage)(nil)
 
 func NewCachedFileStorage(filename string) (*CachedFileStorage, error) {
 	file, err := os.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0777)
