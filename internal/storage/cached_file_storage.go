@@ -13,6 +13,7 @@ import (
 
 var _ Storage = (*CachedFileStorage)(nil)
 
+// CachedFileStorage uses file for storage and cache in memory.
 type CachedFileStorage struct {
 	file     *os.File
 	filename string
@@ -27,6 +28,7 @@ type CachedFileStorage struct {
 	cacheMutex sync.RWMutex
 }
 
+// NewCachedFileStorage creates CachedFileStorage and fills memory storage from the file with name=filename.
 func NewCachedFileStorage(filename string) (*CachedFileStorage, error) {
 	file, err := os.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0777)
 	if err != nil {
@@ -78,10 +80,12 @@ func NewCachedFileStorage(filename string) (*CachedFileStorage, error) {
 	}, nil
 }
 
+// Close closes the file.
 func (s *CachedFileStorage) Close() {
 	s.file.Close()
 }
 
+// AddUser adds new user.
 func (s *CachedFileStorage) AddUser(_ context.Context) (int, error) {
 	s.cacheMutex.Lock()
 	defer s.cacheMutex.Unlock()
@@ -89,6 +93,7 @@ func (s *CachedFileStorage) AddUser(_ context.Context) (int, error) {
 	return s.userCount, nil
 }
 
+// AddURL saves URL into file and after that saves it into cache. Returns ErrAlreadyExists if URL has been added already.
 func (s *CachedFileStorage) AddURL(_ context.Context, url string, userID int) (int, error) {
 	s.fileMutex.Lock()
 	defer s.fileMutex.Unlock()
@@ -107,6 +112,7 @@ func (s *CachedFileStorage) AddURL(_ context.Context, url string, userID int) (i
 	return id, nil
 }
 
+// GetURL returns URL by ID from cache. Returns ErrNotFound if URL does not exist and ErrDeleted if URL is marked as deleted.
 func (s *CachedFileStorage) GetURL(_ context.Context, idStr string) (string, error) {
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
@@ -124,12 +130,14 @@ func (s *CachedFileStorage) GetURL(_ context.Context, idStr string) (string, err
 	return url.url, nil
 }
 
+// GetURLID returns url ID from cache.
 func (s *CachedFileStorage) GetURLID(_ context.Context, url string) (int, error) {
 	s.cacheMutex.RLock()
 	defer s.cacheMutex.RUnlock()
 	return s.urlsID[url], nil
 }
 
+// GetUserUrls returns map with ids and original urls for all user's urls from cache.
 func (s *CachedFileStorage) GetUserUrls(_ context.Context, userID int) (map[int]string, error) {
 	s.cacheMutex.RLock()
 	defer s.cacheMutex.RUnlock()
@@ -144,6 +152,7 @@ func (s *CachedFileStorage) GetUserUrls(_ context.Context, userID int) (map[int]
 	return res, nil
 }
 
+// AddBatch saves list of urls into file and into cache.
 func (s *CachedFileStorage) AddBatch(_ context.Context, urls []internal.CorrIDOriginalURL, userID int) ([]internal.CorrIDUrlID, error) {
 	s.fileMutex.Lock()
 	defer s.fileMutex.Unlock()
@@ -164,6 +173,7 @@ func (s *CachedFileStorage) AddBatch(_ context.Context, urls []internal.CorrIDOr
 	return res, nil
 }
 
+// DeleteBatch rewrites file marking URLs from the list as deleted in file and in cache.
 func (s *CachedFileStorage) DeleteBatch(_ context.Context, ids []internal.IDToDelete) error {
 	// TODO: Change int to specific types.
 	idsMap := make(map[int]int)

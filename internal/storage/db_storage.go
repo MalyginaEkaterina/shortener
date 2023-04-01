@@ -11,6 +11,7 @@ import (
 
 var _ Storage = (*DBStorage)(nil)
 
+// DBStorage contains *sql.DB and prepared statements.
 type DBStorage struct {
 	DB               *sql.DB
 	insertUser       *sql.Stmt
@@ -21,6 +22,7 @@ type DBStorage struct {
 	deleteURL        *sql.Stmt
 }
 
+// NewDBStorage opens sql connection, prepares statements and returns *DBStorage.
 func NewDBStorage(dsn string) (*DBStorage, error) {
 	db, err := sql.Open("pgx", dsn)
 	if err != nil {
@@ -92,6 +94,7 @@ func initTables(db *sql.DB) error {
 	return nil
 }
 
+// AddUser inserts new user and returns its id.
 func (d DBStorage) AddUser(ctx context.Context) (int, error) {
 	row := d.insertUser.QueryRowContext(ctx)
 	var id int
@@ -102,6 +105,7 @@ func (d DBStorage) AddUser(ctx context.Context) (int, error) {
 	return id, nil
 }
 
+// AddURL inserts new URL and returns its id or ErrAlreadyExists if this URL already exists.
 func (d DBStorage) AddURL(ctx context.Context, url string, userID int) (int, error) {
 	row := d.insertURL.QueryRowContext(ctx, url, userID)
 	var id int
@@ -114,6 +118,7 @@ func (d DBStorage) AddURL(ctx context.Context, url string, userID int) (int, err
 	return id, nil
 }
 
+// GetURLID returns url id by its url string.
 func (d DBStorage) GetURLID(ctx context.Context, url string) (int, error) {
 	row := d.selectURLID.QueryRowContext(ctx, url)
 	var id int
@@ -124,6 +129,7 @@ func (d DBStorage) GetURLID(ctx context.Context, url string) (int, error) {
 	return id, nil
 }
 
+// GetURL returns URL by its id. Returns ErrNotFound if there is no such id or ErrDeleted if id is marked as deleted.
 func (d DBStorage) GetURL(ctx context.Context, id string) (string, error) {
 	row := d.selectURLByID.QueryRowContext(ctx, id)
 	var originalURL string
@@ -140,6 +146,7 @@ func (d DBStorage) GetURL(ctx context.Context, id string) (string, error) {
 	return originalURL, nil
 }
 
+// GetUserUrls returns a map with ids and their original URLs for all URLs for the user.
 func (d DBStorage) GetUserUrls(ctx context.Context, userID int) (map[int]string, error) {
 	rows, err := d.selectUrlsByUser.QueryContext(ctx, userID)
 	if err != nil {
@@ -166,6 +173,7 @@ func (d DBStorage) GetUserUrls(ctx context.Context, userID int) (map[int]string,
 	return userUrls, nil
 }
 
+// AddBatch inserts the list of URLs in one transaction.
 func (d DBStorage) AddBatch(ctx context.Context, urls []internal.CorrIDOriginalURL, userID int) ([]internal.CorrIDUrlID, error) {
 	tx, err := d.DB.Begin()
 	if err != nil {
@@ -190,6 +198,7 @@ func (d DBStorage) AddBatch(ctx context.Context, urls []internal.CorrIDOriginalU
 	return corrURLIDs, nil
 }
 
+// DeleteBatch marks URLs by ids from the list as deleted in one transaction.
 func (d DBStorage) DeleteBatch(ctx context.Context, ids []internal.IDToDelete) error {
 	tx, err := d.DB.Begin()
 	if err != nil {
@@ -213,6 +222,7 @@ func (d DBStorage) DeleteBatch(ctx context.Context, ids []internal.IDToDelete) e
 	return nil
 }
 
+// Close closes prepared statements and sql connection.
 func (d DBStorage) Close() {
 	d.insertUser.Close()
 	d.insertURL.Close()
@@ -223,6 +233,7 @@ func (d DBStorage) Close() {
 	d.DB.Close()
 }
 
+// Ping check the sql connection.
 func (d DBStorage) Ping(c context.Context) error {
 	ctx, cancel := context.WithTimeout(c, 1*time.Second)
 	defer cancel()

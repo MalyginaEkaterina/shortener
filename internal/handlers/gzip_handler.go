@@ -12,6 +12,7 @@ type gzipWriter struct {
 	Writer io.Writer
 }
 
+// Write writes the buffer.
 func (w gzipWriter) Write(b []byte) (int, error) {
 	return w.Writer.Write(b)
 }

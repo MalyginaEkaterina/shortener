@@ -16,6 +16,7 @@ import (
 	"os"
 )
 
+// Start parses flags and env vars and starts the server.
 func Start() {
 	var cfg internal.Config
 	var pprofAddress string
