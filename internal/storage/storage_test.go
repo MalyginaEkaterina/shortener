@@ -7,14 +7,29 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"math/rand"
+	"os"
 	"strconv"
 	"testing"
 )
 
 func BenchmarkGetUrl(b *testing.B) {
-	store := NewMemoryStorage()
 	userCount := 1000
 	urlCount := 10000
+	b.Run("memory storage", func(b *testing.B) {
+		store := NewMemoryStorage()
+		getURL(b, store, userCount, urlCount)
+	})
+	b.Run("file storage", func(b *testing.B) {
+		f, err := os.CreateTemp("", "storage_test")
+		require.NoError(b, err)
+		defer os.Remove(f.Name())
+		store, err := NewCachedFileStorage(f.Name())
+		require.NoError(b, err)
+		getURL(b, store, userCount, urlCount)
+	})
+}
+
+func getURL(b *testing.B, store Storage, userCount, urlCount int) {
 	urlIds := make([]int, urlCount)
 	for i := 0; i < userCount; i++ {
 		_, err := store.AddUser(context.Background())
@@ -35,9 +50,23 @@ func BenchmarkGetUrl(b *testing.B) {
 }
 
 func BenchmarkAddUrl(b *testing.B) {
-	store := NewMemoryStorage()
 	userCount := 1000
 	urlCount := 10000
+	b.Run("memory storage", func(b *testing.B) {
+		store := NewMemoryStorage()
+		addURL(b, store, userCount, urlCount)
+	})
+	b.Run("file storage", func(b *testing.B) {
+		f, err := os.CreateTemp("", "storage_test")
+		require.NoError(b, err)
+		defer os.Remove(f.Name())
+		store, err := NewCachedFileStorage(f.Name())
+		require.NoError(b, err)
+		addURL(b, store, userCount, urlCount)
+	})
+}
+
+func addURL(b *testing.B, store Storage, userCount, urlCount int) {
 	urlIds := make([]int, urlCount)
 	for i := 0; i < userCount; i++ {
 		_, err := store.AddUser(context.Background())
@@ -61,27 +90,63 @@ func BenchmarkAddUrl(b *testing.B) {
 }
 
 func BenchmarkAddBatch(b *testing.B) {
+	var toRemove []string
+	defer func() {
+		for _, name := range toRemove {
+			os.Remove(name)
+		}
+	}()
 	tests := []struct {
 		name      string
 		sizeBatch int
 		url       string
+		storeNew  func() (Storage, error)
 	}{
 		{
-			name:      "Batch 1000",
+			name:      "Memory storage. Batch 1000",
 			sizeBatch: 1000,
 			url:       "https://1000ya%d%d.ru",
+			storeNew: func() (Storage, error) {
+				return NewMemoryStorage(), nil
+			},
 		},
 		{
-			name:      "Batch 100",
+			name:      "Memory storage. Batch 100",
 			sizeBatch: 100,
 			url:       "https://100ya%d%d.ru",
+			storeNew: func() (Storage, error) {
+				return NewMemoryStorage(), nil
+			},
+		},
+		{
+			name:      "File storage. Batch 1000",
+			sizeBatch: 1000,
+			url:       "https://1000ya%d%d.ru",
+			storeNew: func() (Storage, error) {
+				f, err := os.CreateTemp("", "storage_test")
+				require.NoError(b, err)
+				toRemove = append(toRemove, f.Name())
+				return NewCachedFileStorage(f.Name())
+			},
+		},
+		{
+			name:      "File storage. Batch 100",
+			sizeBatch: 100,
+			url:       "https://100ya%d%d.ru",
+			storeNew: func() (Storage, error) {
+				f, err := os.CreateTemp("", "storage_test")
+				require.NoError(b, err)
+				toRemove = append(toRemove, f.Name())
+				return NewCachedFileStorage(f.Name())
+			},
 		},
 	}
 	for _, tt := range tests {
 		b.Run(tt.name, func(b *testing.B) {
-			store := NewMemoryStorage()
 			userCount := 1000
 			urlCount := 10000
+			store, err := tt.storeNew()
+			require.NoError(b, err)
 			urlIds := make([]int, urlCount)
 			for i := 0; i < userCount; i++ {
 				_, err := store.AddUser(context.Background())
