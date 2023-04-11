@@ -11,6 +11,9 @@ import (
 	"sync"
 )
 
+var _ Storage = (*CachedFileStorage)(nil)
+
+// CachedFileStorage uses file for storage and cache in memory.
 type CachedFileStorage struct {
 	file     *os.File
 	filename string
@@ -25,8 +28,7 @@ type CachedFileStorage struct {
 	cacheMutex sync.RWMutex
 }
 
-var _ Storage = (*CachedFileStorage)(nil)
-
+// NewCachedFileStorage creates CachedFileStorage and fills memory storage from the file with name=filename.
 func NewCachedFileStorage(filename string) (*CachedFileStorage, error) {
 	file, err := os.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0777)
 	if err != nil {
@@ -59,7 +61,7 @@ func NewCachedFileStorage(filename string) (*CachedFileStorage, error) {
 		if err != nil {
 			return nil, err
 		}
-		url := URL{userID: userID, url: d[2], isDeleted: isDeleted}
+		url := URL{userID: int32(userID), url: d[2], isDeleted: isDeleted}
 		urls[id] = url
 		urlsID[d[1]] = id
 		userUrls[userID] = append(userUrls[userID], id)
@@ -78,10 +80,12 @@ func NewCachedFileStorage(filename string) (*CachedFileStorage, error) {
 	}, nil
 }
 
+// Close closes the file.
 func (s *CachedFileStorage) Close() {
 	s.file.Close()
 }
 
+// AddUser adds new user.
 func (s *CachedFileStorage) AddUser(_ context.Context) (int, error) {
 	s.cacheMutex.Lock()
 	defer s.cacheMutex.Unlock()
@@ -89,6 +93,7 @@ func (s *CachedFileStorage) AddUser(_ context.Context) (int, error) {
 	return s.userCount, nil
 }
 
+// AddURL saves URL into file and after that saves it into cache. Returns ErrAlreadyExists if URL has been added already.
 func (s *CachedFileStorage) AddURL(_ context.Context, url string, userID int) (int, error) {
 	s.fileMutex.Lock()
 	defer s.fileMutex.Unlock()
@@ -107,6 +112,7 @@ func (s *CachedFileStorage) AddURL(_ context.Context, url string, userID int) (i
 	return id, nil
 }
 
+// GetURL returns URL by ID from cache. Returns ErrNotFound if URL does not exist and ErrDeleted if URL is marked as deleted.
 func (s *CachedFileStorage) GetURL(_ context.Context, idStr string) (string, error) {
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
@@ -124,12 +130,14 @@ func (s *CachedFileStorage) GetURL(_ context.Context, idStr string) (string, err
 	return url.url, nil
 }
 
+// GetURLID returns url ID from cache.
 func (s *CachedFileStorage) GetURLID(_ context.Context, url string) (int, error) {
 	s.cacheMutex.RLock()
 	defer s.cacheMutex.RUnlock()
 	return s.urlsID[url], nil
 }
 
+// GetUserUrls returns map with ids and original urls for all user's urls from cache.
 func (s *CachedFileStorage) GetUserUrls(_ context.Context, userID int) (map[int]string, error) {
 	s.cacheMutex.RLock()
 	defer s.cacheMutex.RUnlock()
@@ -144,6 +152,7 @@ func (s *CachedFileStorage) GetUserUrls(_ context.Context, userID int) (map[int]
 	return res, nil
 }
 
+// AddBatch saves list of urls into file and into cache.
 func (s *CachedFileStorage) AddBatch(_ context.Context, urls []internal.CorrIDOriginalURL, userID int) ([]internal.CorrIDUrlID, error) {
 	s.fileMutex.Lock()
 	defer s.fileMutex.Unlock()
@@ -164,6 +173,7 @@ func (s *CachedFileStorage) AddBatch(_ context.Context, urls []internal.CorrIDOr
 	return res, nil
 }
 
+// DeleteBatch rewrites file marking URLs from the list as deleted in file and in cache.
 func (s *CachedFileStorage) DeleteBatch(_ context.Context, ids []internal.IDToDelete) error {
 	// TODO: Change int to specific types.
 	idsMap := make(map[int]int)
@@ -181,7 +191,7 @@ func (s *CachedFileStorage) DeleteBatch(_ context.Context, ids []internal.IDToDe
 	for id, url := range s.urls {
 		userID, deleted := idsMap[id]
 		if deleted {
-			if userID != url.userID {
+			if int32(userID) != url.userID {
 				deleted = false
 			}
 		}
@@ -223,7 +233,7 @@ func (s *CachedFileStorage) setDeletedInCache(id int) {
 func (s *CachedFileStorage) addToCache(userID int, url string, id int) {
 	s.cacheMutex.Lock()
 	defer s.cacheMutex.Unlock()
-	s.urls[id] = URL{userID: userID, url: url, isDeleted: false}
+	s.urls[id] = URL{userID: int32(userID), url: url, isDeleted: false}
 	s.urlsID[url] = id
 	s.userUrls[userID] = append(s.userUrls[userID], id)
 }

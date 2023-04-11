@@ -18,12 +18,15 @@ const (
 	deleteTimeout   = 30 * time.Second
 )
 
+// DeleteWorker is used to add url IDs for deletion.
 type DeleteWorker interface {
+	// Delete is used to queue the list of shortened URL IDs for deletion.
 	Delete(ids []internal.IDToDelete)
 }
 
 var _ DeleteWorker = (*DeleteURL)(nil)
 
+// DeleteURL is used for creating the buffer of shortened URL IDs for deletion from Storage.
 type DeleteURL struct {
 	inCh  chan internal.IDToDelete
 	buf   []internal.IDToDelete
@@ -31,6 +34,7 @@ type DeleteURL struct {
 	store storage.Storage
 }
 
+// NewDeleteWorker creates new DeleteURL.
 func NewDeleteWorker(store storage.Storage) *DeleteURL {
 	return &DeleteURL{
 		inCh:  make(chan internal.IDToDelete, deleteChanSize),
@@ -39,14 +43,17 @@ func NewDeleteWorker(store storage.Storage) *DeleteURL {
 	}
 }
 
+// Signal contains channel for notifying.
 type Signal struct {
 	C chan struct{}
 }
 
+// NewSignal creates new Signal.
 func NewSignal() Signal {
 	return Signal{C: make(chan struct{}, 1)}
 }
 
+// Notify is used to send a signal if the other side is waiting.
 func (s Signal) Notify() {
 	select {
 	case s.C <- struct{}{}:
@@ -54,6 +61,9 @@ func (s Signal) Notify() {
 	}
 }
 
+// Run starts the deleting worker.
+// Receives ID for deletion from channel inCh and put it into array buf.
+// Flushes buffer with IDs after reaching by buf the size=deleteChunkSize or after period=flushAfter.
 func (w *DeleteURL) Run(ctx context.Context) {
 	flushTick := time.NewTicker(flushAfter)
 	flushSignal := NewSignal()
@@ -102,6 +112,13 @@ func (w *DeleteURL) Run(ctx context.Context) {
 	}
 }
 
+// Delete is used to queue the list of shortened URL IDs for deletion
+func (w *DeleteURL) Delete(ids []internal.IDToDelete) {
+	for _, v := range ids {
+		w.inCh <- v
+	}
+}
+
 func (w *DeleteURL) flushAll() error {
 	w.mutex.Lock()
 	defer w.mutex.Unlock()
@@ -134,10 +151,4 @@ func (w *DeleteURL) flushBuf() error {
 	}
 	w.buf = w.buf[:0]
 	return nil
-}
-
-func (w *DeleteURL) Delete(ids []internal.IDToDelete) {
-	for _, v := range ids {
-		w.inCh <- v
-	}
 }

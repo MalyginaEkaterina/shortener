@@ -14,6 +14,7 @@ import (
 	"strconv"
 )
 
+// Router routes http requests.
 type Router struct {
 	store        storage.Storage
 	signer       Signer
@@ -22,6 +23,7 @@ type Router struct {
 	deleteWorker service.DeleteWorker
 }
 
+// NewRouter creates new chi Router and configures it.
 func NewRouter(store storage.Storage, cfg internal.Config, signer Signer, service service.Service, deleteWorker service.DeleteWorker) chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -58,24 +60,29 @@ func NewRouter(store storage.Storage, cfg internal.Config, signer Signer, servic
 	return r
 }
 
+// ShortenRequest contains a request to shorten the URL.
 type ShortenRequest struct {
 	URL string `json:"url"`
 }
 
+// ShortenResponse contains a response with shortened URL.
 type ShortenResponse struct {
 	Result string `json:"result"`
 }
 
+// ShortOriginalURL contains original URL and its corresponding shortened URL.
 type ShortOriginalURL struct {
 	ShortURL    string `json:"short_url"`
 	OriginalURL string `json:"original_url"`
 }
 
+// CorrIDShortURL contains shortened URL and its corresponding correlation_id from the request to shorten of the batch.
 type CorrIDShortURL struct {
 	CorrID   string `json:"correlation_id"`
 	ShortURL string `json:"short_url"`
 }
 
+// Handler errors
 var (
 	ErrSignNotValid = errors.New("sign is not valid")
 )
@@ -127,6 +134,9 @@ func (r *Router) getID(req *http.Request) (int, error) {
 	return userID, nil
 }
 
+// Shorten receives JSON with URL and returns status 201 and shortened URL.
+// Returns status 409 and shortened URL if the URL has already been shortened.
+// If request does not contain a valid token new user will be created.
 func (r *Router) Shorten(writer http.ResponseWriter, req *http.Request) {
 	var shortenRequest ShortenRequest
 	if !unmarshalRequest(writer, req, &shortenRequest) {
@@ -186,6 +196,9 @@ func unmarshalRequest(writer http.ResponseWriter, req *http.Request, v any) bool
 	return true
 }
 
+// ShortURL receives text with URL and returns status 201 and shortened URL.
+// Returns status 409 if the URL has already been shortened.
+// If request does not contain a valid token new user will be created.
 func (r *Router) ShortURL(writer http.ResponseWriter, req *http.Request) {
 	body, err := io.ReadAll(req.Body)
 	if err != nil {
@@ -223,6 +236,9 @@ func (r *Router) ShortURL(writer http.ResponseWriter, req *http.Request) {
 	writer.Write([]byte(resp))
 }
 
+// GetURLByID receives url parameter with id and returns status 307 and associated URL in header Location.
+// Returns status 400 if requested id does not exist.
+// Returns status 410 if requested id was deleted.
 func (r *Router) GetURLByID(writer http.ResponseWriter, req *http.Request) {
 	id := chi.URLParam(req, "id")
 	if id == "" {
@@ -246,6 +262,8 @@ func (r *Router) GetURLByID(writer http.ResponseWriter, req *http.Request) {
 	writer.WriteHeader(http.StatusTemporaryRedirect)
 }
 
+// GetUserUrls returns the list of shortened and original URLs for the user.
+// Returns status 204 if there is no data for the user.
 func (r *Router) GetUserUrls(writer http.ResponseWriter, req *http.Request) {
 	userID, err := r.getID(req)
 	if err != nil {
@@ -270,6 +288,9 @@ func (r *Router) GetUserUrls(writer http.ResponseWriter, req *http.Request) {
 	marshalResponseAndSetCookie(writer, http.StatusOK, nil, urlsList)
 }
 
+// ShortenBatch receives JSON with the list of URLs and their correlation_id and returns status 201
+// and the list of shortened URLs with their correlation_id.
+// If request does not contain a valid token a new user will be created.
 func (r *Router) ShortenBatch(writer http.ResponseWriter, req *http.Request) {
 	var urls []internal.CorrIDOriginalURL
 	if !unmarshalRequest(writer, req, &urls) {
@@ -296,6 +317,7 @@ func (r *Router) ShortenBatch(writer http.ResponseWriter, req *http.Request) {
 	marshalResponseAndSetCookie(writer, http.StatusCreated, tokenCookie, shortenUrls)
 }
 
+// DeleteBatch receives the list of shortened URL IDs, queued them for deletion and returns status 202.
 func (r *Router) DeleteBatch(writer http.ResponseWriter, req *http.Request) {
 	var urlIDs []string
 	if !unmarshalRequest(writer, req, &urlIDs) {

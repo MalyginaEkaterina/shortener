@@ -1,5 +1,6 @@
 package internal
 
+// Config is the server configuration.
 type Config struct {
 	Address         string `env:"SERVER_ADDRESS"`
 	BaseURL         string `env:"BASE_URL"`

@@ -5,6 +5,7 @@ import (
 	"net/http"
 )
 
+// PingDB is used to check database connection.
 func PingDB(store storage.Storage) http.HandlerFunc {
 	return func(writer http.ResponseWriter, req *http.Request) {
 		dbStorage, ok := store.(*storage.DBStorage)
