@@ -181,11 +181,12 @@ func (d DBStorage) AddBatch(ctx context.Context, urls []internal.CorrIDOriginalU
 		return nil, err
 	}
 	txStmt := tx.StmtContext(ctx, d.insertURL)
+	defer txStmt.Close()
 	var corrURLIDs []internal.CorrIDUrlID
 	for _, v := range urls {
 		row := txStmt.QueryRowContext(ctx, v.OriginalURL, userID)
 		corrURLID := internal.CorrIDUrlID{CorrID: v.CorrID}
-		err := row.Scan(&corrURLID.URLID)
+		err = row.Scan(&corrURLID.URLID)
 		if err == nil {
 			corrURLIDs = append(corrURLIDs, corrURLID)
 		}
@@ -208,6 +209,7 @@ func (d DBStorage) DeleteBatch(ctx context.Context, ids []internal.IDToDelete) e
 	defer tx.Rollback()
 
 	txStmt := tx.StmtContext(ctx, d.deleteURL)
+	defer txStmt.Close()
 	for _, v := range ids {
 		_, err = txStmt.ExecContext(ctx, v.ID, v.UserID)
 		if err != nil {
