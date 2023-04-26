@@ -43,21 +43,24 @@ func NewCachedFileStorage(filename string) (*CachedFileStorage, error) {
 	for scanner.Scan() {
 		str := string(scanner.Bytes())
 		d := strings.Split(str, " ")
-		id, err := strconv.Atoi(d[0])
+		var id int
+		id, err = strconv.Atoi(d[0])
 		if err != nil {
 			return nil, err
 		}
 		if urlCount < id {
 			urlCount = id
 		}
-		userID, err := strconv.Atoi(d[1])
+		var userID int
+		userID, err = strconv.Atoi(d[1])
 		if err != nil {
 			return nil, err
 		}
 		if userCount < userID {
 			userCount = userID
 		}
-		isDeleted, err := strconv.ParseBool(d[3])
+		var isDeleted bool
+		isDeleted, err = strconv.ParseBool(d[3])
 		if err != nil {
 			return nil, err
 		}
