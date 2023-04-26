@@ -2,6 +2,11 @@ package app
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"flag"
 	"github.com/MalyginaEkaterina/shortener/internal"
 	"github.com/MalyginaEkaterina/shortener/internal/handlers"
@@ -11,9 +16,12 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"io"
 	"log"
+	"math/big"
+	"net"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
+	"time"
 )
 
 // Start parses flags and env vars and starts the server.
@@ -25,8 +33,9 @@ func Start() {
 	flag.StringVar(&cfg.BaseURL, "b", "http://localhost:8080", "base address for short URL")
 	flag.StringVar(&cfg.FileStoragePath, "f", "", "file storage path")
 	flag.StringVar(&cfg.DatabaseDSN, "d", "", "database connection string")
-	flag.StringVar(&secretFilePath, "s", "", "path to file with secret")
+	flag.StringVar(&secretFilePath, "p", "", "path to file with secret")
 	flag.StringVar(&pprofAddress, "pprof", "localhost:6060", "address to export pprof on")
+	flag.BoolVar(&cfg.EnableHTTPS, "s", false, "enable https")
 	flag.Parse()
 	err := env.Parse(&cfg)
 	if err != nil {
@@ -53,8 +62,55 @@ func Start() {
 	deleteWorker := service.NewDeleteWorker(store)
 	go deleteWorker.Run(ctx)
 	r := handlers.NewRouter(store, cfg, signer, urlService, deleteWorker)
-	log.Printf("Started server on %s\n", cfg.Address)
-	log.Fatal(http.ListenAndServe(cfg.Address, r))
+
+	if cfg.EnableHTTPS {
+		log.Printf("Started TLS server on %s\n", cfg.Address)
+		cert := generateTLSCertificate()
+		server := &http.Server{
+			Addr:    cfg.Address,
+			Handler: r,
+			TLSConfig: &tls.Config{
+				Certificates: []tls.Certificate{cert},
+			},
+		}
+		log.Fatal(server.ListenAndServeTLS("", ""))
+	} else {
+		log.Printf("Started server on %s\n", cfg.Address)
+		log.Fatal(http.ListenAndServe(cfg.Address, r))
+	}
+}
+
+func generateTLSCertificate() tls.Certificate {
+	cert := &x509.Certificate{
+		SerialNumber: big.NewInt(1658),
+		Subject: pkix.Name{
+			Organization: []string{"Yandex.Praktikum"},
+			Country:      []string{"RU"},
+		},
+		IPAddresses:  []net.IP{net.IPv4(127, 0, 0, 1), net.IPv6loopback},
+		DNSNames:     []string{"localhost"},
+		NotBefore:    time.Now(),
+		NotAfter:     time.Now().AddDate(10, 0, 0),
+		SubjectKeyId: []byte{1, 2, 3, 4, 6},
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
+		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+	}
+
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	certBytes, err := x509.CreateCertificate(rand.Reader, cert, cert, &privateKey.PublicKey, privateKey)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	return tls.Certificate{
+		Certificate: [][]byte{certBytes},
+		PrivateKey:  privateKey,
+		Leaf:        cert,
+	}
 }
 
 func initStore(cfg internal.Config) storage.Storage {
