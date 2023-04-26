@@ -17,17 +17,9 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		ast.Inspect(file, func(node ast.Node) bool {
 			switch x := node.(type) {
 			case *ast.File:
-				if x.Name.Name == "main" {
-					return true
-				} else {
-					return false
-				}
+				return x.Name.Name == "main"
 			case *ast.FuncDecl:
-				if x.Name.Name == "main" {
-					return true
-				} else {
-					return false
-				}
+				return x.Name.Name == "main"
 			case *ast.CallExpr:
 				if f, ok := x.Fun.(*ast.SelectorExpr); ok {
 					if p, ok := f.X.(*ast.Ident); ok {
