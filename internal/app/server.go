@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/json"
 	"flag"
 	"github.com/MalyginaEkaterina/shortener/internal"
 	"github.com/MalyginaEkaterina/shortener/internal/handlers"
@@ -26,19 +27,45 @@ import (
 
 // Start parses flags and env vars and starts the server.
 func Start() {
-	var cfg internal.Config
+	cfg := internal.Config{
+		Address: "localhost:8080",
+		BaseURL: "http://localhost:8080",
+	}
+
+	cfgFlag := flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+	var configName string
+	cfgFlag.StringVar(&configName, "c", os.Getenv("CONFIG"), "name of config file")
+	cfgFlag.Parse(os.Args[1:])
+	if configName != "" {
+		confData, err := os.ReadFile(configName)
+		if err != nil {
+			log.Fatal("Error while reading config file")
+		}
+		err = json.Unmarshal(confData, &cfg)
+		if err != nil {
+			log.Fatal("Error while parsing config file")
+		}
+	}
+
 	var pprofAddress string
 	var secretFilePath string
-	flag.StringVar(&cfg.Address, "a", "localhost:8080", "address to listen on")
-	flag.StringVar(&cfg.BaseURL, "b", "http://localhost:8080", "base address for short URL")
-	flag.StringVar(&cfg.FileStoragePath, "f", "", "file storage path")
-	flag.StringVar(&cfg.DatabaseDSN, "d", "", "database connection string")
-	flag.StringVar(&secretFilePath, "p", "", "path to file with secret")
-	flag.StringVar(&pprofAddress, "pprof", "localhost:6060", "address to export pprof on")
-	flag.BoolVar(&cfg.EnableHTTPS, "s", false, "enable https")
-	flag.Parse()
-	err := env.Parse(&cfg)
-	if err != nil {
+	flags := flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+	flags.StringVar(&cfg.Address, "a", cfg.Address, "address to listen on")
+	flags.StringVar(&cfg.BaseURL, "b", cfg.BaseURL, "base address for short URL")
+	flags.StringVar(&cfg.FileStoragePath, "f", cfg.FileStoragePath, "file storage path")
+	flags.StringVar(&cfg.DatabaseDSN, "d", cfg.DatabaseDSN, "database connection string")
+	flags.BoolVar(&cfg.EnableHTTPS, "s", cfg.EnableHTTPS, "enable https")
+	flags.StringVar(&secretFilePath, "p", "", "path to file with secret")
+	flags.StringVar(&pprofAddress, "pprof", "localhost:6060", "address to export pprof on")
+	flags.StringVar(&configName, "c", os.Getenv("CONFIG"), "name of config file")
+	if err := flags.Parse(os.Args[1:]); err != nil {
+		if err == flag.ErrHelp {
+			return
+		}
+		log.Fatal("Error parsing args", err)
+	}
+
+	if err := env.Parse(&cfg); err != nil {
 		log.Fatal("Error while parsing env", err)
 	}
 
