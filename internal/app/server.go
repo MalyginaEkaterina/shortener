@@ -22,6 +22,8 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 )
 
@@ -90,8 +92,19 @@ func Start() {
 	go deleteWorker.Run(ctx)
 	r := handlers.NewRouter(store, cfg, signer, urlService, deleteWorker)
 
+	sigint := make(chan os.Signal, 1)
+	connsClosed := make(chan struct{})
+	signal.Notify(sigint, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
+
+	shutdown := func(srv *http.Server) {
+		<-sigint
+		if er := srv.Shutdown(context.Background()); er != nil {
+			log.Printf("HTTP server Shutdown: %v", er)
+		}
+		close(connsClosed)
+	}
+
 	if cfg.EnableHTTPS {
-		log.Printf("Started TLS server on %s\n", cfg.Address)
 		cert := generateTLSCertificate()
 		server := &http.Server{
 			Addr:    cfg.Address,
@@ -100,11 +113,21 @@ func Start() {
 				Certificates: []tls.Certificate{cert},
 			},
 		}
-		log.Fatal(server.ListenAndServeTLS("", ""))
+		go shutdown(server)
+		log.Printf("Started TLS server on %s\n", cfg.Address)
+		if err = server.ListenAndServeTLS("", ""); err != http.ErrServerClosed {
+			log.Fatalf("HTTP server ListenAndServeTLS: %v", err)
+		}
 	} else {
+		server := &http.Server{Addr: cfg.Address, Handler: r}
+		go shutdown(server)
 		log.Printf("Started server on %s\n", cfg.Address)
-		log.Fatal(http.ListenAndServe(cfg.Address, r))
+		if err = server.ListenAndServe(); err != http.ErrServerClosed {
+			log.Fatalf("HTTP server ListenAndServe: %v", err)
+		}
 	}
+	<-connsClosed
+	log.Printf("Stopped server on %s\n", cfg.Address)
 }
 
 func generateTLSCertificate() tls.Certificate {
