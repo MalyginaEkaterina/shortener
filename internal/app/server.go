@@ -9,6 +9,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"github.com/MalyginaEkaterina/shortener/internal"
 	"github.com/MalyginaEkaterina/shortener/internal/handlers"
 	"github.com/MalyginaEkaterina/shortener/internal/service"
@@ -34,7 +35,8 @@ func Start() {
 		BaseURL: "http://localhost:8080",
 	}
 
-	cfgFlag := flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+	appName := os.Args[0]
+	cfgFlag := flag.NewFlagSet(appName, flag.ContinueOnError)
 	var configName string
 	cfgFlag.StringVar(&configName, "c", os.Getenv("CONFIG"), "name of config file")
 	cfgFlag.Parse(os.Args[1:])
@@ -51,7 +53,7 @@ func Start() {
 
 	var pprofAddress string
 	var secretFilePath string
-	flags := flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+	flags := flag.NewFlagSet(appName, flag.ContinueOnError)
 	flags.StringVar(&cfg.Address, "a", cfg.Address, "address to listen on")
 	flags.StringVar(&cfg.BaseURL, "b", cfg.BaseURL, "base address for short URL")
 	flags.StringVar(&cfg.FileStoragePath, "f", cfg.FileStoragePath, "file storage path")
@@ -105,12 +107,15 @@ func Start() {
 	}
 
 	if cfg.EnableHTTPS {
-		cert := generateTLSCertificate()
+		cert, err := generateTLSCertificate()
+		if err != nil {
+			log.Fatal(err)
+		}
 		server := &http.Server{
 			Addr:    cfg.Address,
 			Handler: r,
 			TLSConfig: &tls.Config{
-				Certificates: []tls.Certificate{cert},
+				Certificates: []tls.Certificate{*cert},
 			},
 		}
 		go shutdown(server)
@@ -130,7 +135,7 @@ func Start() {
 	log.Printf("Stopped server on %s\n", cfg.Address)
 }
 
-func generateTLSCertificate() tls.Certificate {
+func generateTLSCertificate() (*tls.Certificate, error) {
 	cert := &x509.Certificate{
 		SerialNumber: big.NewInt(1658),
 		Subject: pkix.Name{
@@ -148,19 +153,19 @@ func generateTLSCertificate() tls.Certificate {
 
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
-		log.Fatal(err)
+		return nil, fmt.Errorf(`error while key generating: %w`, err)
 	}
 
 	certBytes, err := x509.CreateCertificate(rand.Reader, cert, cert, &privateKey.PublicKey, privateKey)
 	if err != nil {
-		log.Fatal(err)
+		return nil, fmt.Errorf(`error while creating certificate: %w`, err)
 	}
 
-	return tls.Certificate{
+	return &tls.Certificate{
 		Certificate: [][]byte{certBytes},
 		PrivateKey:  privateKey,
 		Leaf:        cert,
-	}
+	}, nil
 }
 
 func initStore(cfg internal.Config) storage.Storage {
