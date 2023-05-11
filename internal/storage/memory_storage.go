@@ -120,6 +120,13 @@ func (s *MemoryStorage) DeleteBatch(_ context.Context, ids []internal.IDToDelete
 	return nil
 }
 
+// GetStat returns count of shortened URL and count of User
+func (s *MemoryStorage) GetStat(_ context.Context) (urls, users int, err error) {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+	return len(s.urls), int(s.userCount.Load()), nil
+}
+
 // Close does nothing.
 func (s *MemoryStorage) Close() {
 }

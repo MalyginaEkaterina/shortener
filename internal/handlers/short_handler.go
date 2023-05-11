@@ -10,17 +10,19 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"strconv"
 )
 
 // Router routes http requests.
 type Router struct {
-	store        storage.Storage
-	signer       Signer
-	baseURL      string
-	service      service.Service
-	deleteWorker service.DeleteWorker
+	store         storage.Storage
+	signer        Signer
+	baseURL       string
+	service       service.Service
+	deleteWorker  service.DeleteWorker
+	trustedSubnet *net.IPNet
 }
 
 // NewRouter creates new chi Router and configures it.
@@ -33,11 +35,12 @@ func NewRouter(store storage.Storage, cfg internal.Config, signer Signer, servic
 	r.Use(gzipHandle)
 
 	router := &Router{
-		store:        store,
-		signer:       signer,
-		baseURL:      cfg.BaseURL,
-		service:      service,
-		deleteWorker: deleteWorker,
+		store:         store,
+		signer:        signer,
+		baseURL:       cfg.BaseURL,
+		service:       service,
+		deleteWorker:  deleteWorker,
+		trustedSubnet: cfg.TrustedSubnet,
 	}
 
 	r.Route("/", func(r chi.Router) {
@@ -48,6 +51,7 @@ func NewRouter(store storage.Storage, cfg internal.Config, signer Signer, servic
 		r.Get("/ping", PingDB(store))
 		r.Post("/api/shorten/batch", router.ShortenBatch)
 		r.Delete("/api/user/urls", router.DeleteBatch)
+		r.Get("/api/internal/stats", router.GetStats)
 	})
 
 	r.NotFound(func(writer http.ResponseWriter, request *http.Request) {
@@ -82,9 +86,20 @@ type CorrIDShortURL struct {
 	ShortURL string `json:"short_url"`
 }
 
+// Stat contains count of URLs and count of Users
+type Stat struct {
+	URLCount   int `json:"urls"`
+	UsersCount int `json:"users"`
+}
+
 // Handler errors
 var (
 	ErrSignNotValid = errors.New("sign is not valid")
+)
+
+// Consts
+const (
+	IPHeader = "X-Real-IP"
 )
 
 func (r *Router) getIDAndCookie(req *http.Request) (int, *http.Cookie, error) {
@@ -342,4 +357,27 @@ func (r *Router) DeleteBatch(writer http.ResponseWriter, req *http.Request) {
 	}
 	r.deleteWorker.Delete(idsToDelete)
 	writer.WriteHeader(http.StatusAccepted)
+}
+
+// GetStats returns statistics
+func (r *Router) GetStats(writer http.ResponseWriter, req *http.Request) {
+	if r.trustedSubnet == nil {
+		http.Error(writer, "Forbidden", http.StatusForbidden)
+		return
+	}
+	ip := net.ParseIP(req.Header.Get(IPHeader))
+	if !r.trustedSubnet.Contains(ip) {
+		http.Error(writer, "Forbidden", http.StatusForbidden)
+		return
+	}
+	urls, users, err := r.store.GetStat(req.Context())
+	if err != nil {
+		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	stat := Stat{
+		URLCount:   urls,
+		UsersCount: users,
+	}
+	marshalResponseAndSetCookie(writer, http.StatusOK, nil, stat)
 }
