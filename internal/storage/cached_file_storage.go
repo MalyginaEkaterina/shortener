@@ -240,3 +240,10 @@ func (s *CachedFileStorage) addToCache(userID int, url string, id int) {
 	s.urlsID[url] = id
 	s.userUrls[userID] = append(s.userUrls[userID], id)
 }
+
+// GetStat returns count of shortened URL and count of User
+func (s *CachedFileStorage) GetStat(_ context.Context) (urls, users int, err error) {
+	s.cacheMutex.RLock()
+	defer s.cacheMutex.RUnlock()
+	return len(s.urls), s.userCount, nil
+}

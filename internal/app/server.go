@@ -59,6 +59,7 @@ func Start() {
 	flags.StringVar(&cfg.FileStoragePath, "f", cfg.FileStoragePath, "file storage path")
 	flags.StringVar(&cfg.DatabaseDSN, "d", cfg.DatabaseDSN, "database connection string")
 	flags.BoolVar(&cfg.EnableHTTPS, "s", cfg.EnableHTTPS, "enable https")
+	flags.StringVar(&cfg.TrustedSubnetStr, "t", cfg.TrustedSubnetStr, "trusted subnet for getting stats")
 	flags.StringVar(&secretFilePath, "p", "", "path to file with secret")
 	flags.StringVar(&pprofAddress, "pprof", "localhost:6060", "address to export pprof on")
 	flags.StringVar(&configName, "c", os.Getenv("CONFIG"), "name of config file")
@@ -75,6 +76,14 @@ func Start() {
 
 	if pprofAddress != "" {
 		go http.ListenAndServe(pprofAddress, nil)
+	}
+
+	if cfg.TrustedSubnetStr != "" {
+		var err error
+		_, cfg.TrustedSubnet, err = net.ParseCIDR(cfg.TrustedSubnetStr)
+		if err != nil {
+			log.Fatal("Error while parsing trusted subnet", err)
+		}
 	}
 
 	store := initStore(cfg)

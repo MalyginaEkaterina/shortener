@@ -20,6 +20,8 @@ type DBStorage struct {
 	selectUrlsByUser *sql.Stmt
 	selectURLID      *sql.Stmt
 	deleteURL        *sql.Stmt
+	countURLs        *sql.Stmt
+	countUsers       *sql.Stmt
 }
 
 // NewDBStorage opens sql connection, prepares statements and returns *DBStorage.
@@ -56,6 +58,14 @@ func NewDBStorage(dsn string) (*DBStorage, error) {
 	if err != nil {
 		return nil, err
 	}
+	stmtCountURLs, err := db.Prepare("SELECT count(*) FROM urls")
+	if err != nil {
+		return nil, err
+	}
+	stmtCountUsers, err := db.Prepare("SELECT count(*) FROM users")
+	if err != nil {
+		return nil, err
+	}
 	return &DBStorage{
 		DB:               db,
 		insertUser:       stmtInsertUser,
@@ -64,6 +74,8 @@ func NewDBStorage(dsn string) (*DBStorage, error) {
 		selectUrlsByUser: stmtSelectUrlsByUser,
 		selectURLID:      stmtSelectURLID,
 		deleteURL:        stmtDeleteURL,
+		countURLs:        stmtCountURLs,
+		countUsers:       stmtCountUsers,
 	}, nil
 }
 
@@ -222,6 +234,21 @@ func (d DBStorage) DeleteBatch(ctx context.Context, ids []internal.IDToDelete) e
 		return err
 	}
 	return nil
+}
+
+// GetStat returns count of shortened URLs and count of users
+func (d DBStorage) GetStat(ctx context.Context) (urls, users int, err error) {
+	row := d.countURLs.QueryRowContext(ctx)
+	err = row.Scan(&urls)
+	if err != nil {
+		return 0, 0, err
+	}
+	row = d.countUsers.QueryRowContext(ctx)
+	err = row.Scan(&users)
+	if err != nil {
+		return 0, 0, err
+	}
+	return urls, users, nil
 }
 
 // Close closes prepared statements and sql connection.

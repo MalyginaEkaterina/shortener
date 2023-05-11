@@ -29,6 +29,8 @@ type Storage interface {
 	AddBatch(ctx context.Context, urls []internal.CorrIDOriginalURL, userID int) ([]internal.CorrIDUrlID, error)
 	// DeleteBatch marks url IDs from the list as deleted in storage.
 	DeleteBatch(ctx context.Context, ids []internal.IDToDelete) error
+	// GetStat returns count of shortened URL and count of User
+	GetStat(ctx context.Context) (urls, users int, err error)
 	// Close closes resources.
 	Close()
 }
