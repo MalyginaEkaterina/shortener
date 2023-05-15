@@ -208,8 +208,9 @@ func newTestServer() (ts *http.Server, serverURL string) {
 		Address: ":8392",
 		BaseURL: "http://localhost:8392",
 	}
-	r := NewRouter(store, cfg, Signer{SecretKey: []byte("secret again")},
-		service.URLService{Store: store}, service.NewDeleteWorker(store))
+	r := NewRouter(store, cfg,
+		service.URLService{Store: store, Signer: service.Signer{SecretKey: []byte("secret again")}},
+		service.NewDeleteWorker(store))
 	ts = &http.Server{
 		Addr:    cfg.Address,
 		Handler: r,

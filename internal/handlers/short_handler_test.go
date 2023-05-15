@@ -62,8 +62,9 @@ func TestGetUrlById(t *testing.T) {
 	cfg := internal.Config{Address: ":8080", BaseURL: "http://localhost:8080"}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := NewRouter(tt.store, cfg, Signer{SecretKey: []byte("secret again")},
-				service.URLService{Store: tt.store}, service.NewDeleteWorker(tt.store))
+			r := NewRouter(tt.store, cfg,
+				service.URLService{Store: tt.store, Signer: service.Signer{SecretKey: []byte("secret again")}},
+				service.NewDeleteWorker(tt.store))
 			ts := httptest.NewServer(r)
 			defer ts.Close()
 
@@ -119,8 +120,9 @@ func TestShortUrl(t *testing.T) {
 	cfg := internal.Config{Address: ":8080", BaseURL: "http://localhost:8080"}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := NewRouter(tt.store, cfg, Signer{SecretKey: []byte("sikrit")},
-				service.URLService{Store: tt.store}, service.NewDeleteWorker(tt.store))
+			r := NewRouter(tt.store, cfg,
+				service.URLService{Store: tt.store, Signer: service.Signer{SecretKey: []byte("sikrit")}},
+				service.NewDeleteWorker(tt.store))
 			ts := httptest.NewServer(r)
 			defer ts.Close()
 
@@ -178,8 +180,9 @@ func TestShorten(t *testing.T) {
 	cfg := internal.Config{Address: ":8080", BaseURL: "http://localhost:8080"}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := NewRouter(tt.store, cfg, Signer{SecretKey: []byte("secret")},
-				service.URLService{Store: tt.store}, service.NewDeleteWorker(tt.store))
+			r := NewRouter(tt.store, cfg,
+				service.URLService{Store: tt.store, Signer: service.Signer{SecretKey: []byte("secret")}},
+				service.NewDeleteWorker(tt.store))
 			ts := httptest.NewServer(r)
 			defer ts.Close()
 
@@ -206,7 +209,7 @@ func TestGetUserUrls(t *testing.T) {
 		statusCode int
 		resp       []ShortOriginalURL
 	}
-	signer := Signer{SecretKey: []byte("another secret key")}
+	signer := service.Signer{SecretKey: []byte("another secret key")}
 	token, err := signer.CreateSign(8)
 	require.NoError(t, err)
 	tests := []struct {
@@ -241,7 +244,7 @@ func TestGetUserUrls(t *testing.T) {
 	cfg := internal.Config{Address: ":8080", BaseURL: "http://localhost:8080"}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := NewRouter(tt.store, cfg, signer, service.URLService{Store: tt.store}, service.NewDeleteWorker(tt.store))
+			r := NewRouter(tt.store, cfg, service.URLService{Store: tt.store, Signer: signer}, service.NewDeleteWorker(tt.store))
 			ts := httptest.NewServer(r)
 			defer ts.Close()
 
@@ -306,8 +309,9 @@ func TestShortenBatch(t *testing.T) {
 	cfg := internal.Config{Address: ":8080", BaseURL: "http://localhost:8080"}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := NewRouter(tt.store, cfg, Signer{SecretKey: []byte("my secret key")},
-				service.URLService{Store: tt.store}, service.NewDeleteWorker(tt.store))
+			r := NewRouter(tt.store, cfg,
+				service.URLService{Store: tt.store, Signer: service.Signer{SecretKey: []byte("my secret key")}},
+				service.NewDeleteWorker(tt.store))
 			ts := httptest.NewServer(r)
 			defer ts.Close()
 
@@ -371,8 +375,9 @@ func TestGetStats(t *testing.T) {
 				assert.NoError(t, err)
 			}
 			cfg := internal.Config{Address: ":8080", BaseURL: "http://localhost:8080", TrustedSubnet: subnet}
-			r := NewRouter(tt.store, cfg, Signer{SecretKey: []byte("secret again")},
-				service.URLService{Store: tt.store}, service.NewDeleteWorker(tt.store))
+			r := NewRouter(tt.store, cfg,
+				service.URLService{Store: tt.store, Signer: service.Signer{SecretKey: []byte("secret again")}},
+				service.NewDeleteWorker(tt.store))
 			ts := httptest.NewServer(r)
 			defer ts.Close()
 

@@ -1,0 +1,63 @@
+syntax = "proto3";
+
+package handlers;
+
+option go_package = "handlers/proto";
+
+message ShortenReq {
+  string url = 1;
+}
+
+enum ShortenStatus {
+  CONFLICT = 0;
+  CREATED = 1;
+}
+
+message ShortenResp {
+  string result = 1;
+  ShortenStatus status = 2;
+}
+
+message GetUserUrlsReq {
+}
+
+message ShortenedOriginalUrl {
+  string short_url = 1;
+  string original_url = 2;
+}
+
+message GetUserUrlsResp {
+  repeated ShortenedOriginalUrl urls = 1;
+}
+
+message CorrelationIDOriginalUrl {
+  string correlation_id = 1;
+  string original_url = 2;
+}
+
+message ShortenBatchReq {
+  repeated CorrelationIDOriginalUrl urls = 1;
+}
+
+message CorrIDShortenedUrl {
+  string correlation_id = 1;
+  string short_url = 2;
+}
+
+message ShortenBatchResp {
+  repeated CorrIDShortenedUrl urls = 1;
+}
+
+message DeleteBatchReq {
+  repeated string url_ids = 1;
+}
+
+message DeleteBatchResp {
+}
+
+service Shortener {
+  rpc Shorten(ShortenReq) returns (ShortenResp);
+  rpc GetUserUrls(GetUserUrlsReq) returns (GetUserUrlsResp);
+  rpc ShortenBatch(ShortenBatchReq) returns (ShortenBatchResp);
+  rpc DeleteBatch(DeleteBatchReq) returns (DeleteBatchResp);
+}

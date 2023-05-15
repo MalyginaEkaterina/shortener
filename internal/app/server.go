@@ -12,10 +12,14 @@ import (
 	"fmt"
 	"github.com/MalyginaEkaterina/shortener/internal"
 	"github.com/MalyginaEkaterina/shortener/internal/handlers"
+	pb "github.com/MalyginaEkaterina/shortener/internal/handlers/proto"
 	"github.com/MalyginaEkaterina/shortener/internal/service"
 	"github.com/MalyginaEkaterina/shortener/internal/storage"
 	"github.com/caarlos0/env/v6"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"golang.org/x/sync/errgroup"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"io"
 	"log"
 	"math/big"
@@ -31,8 +35,9 @@ import (
 // Start parses flags and env vars and starts the server.
 func Start() {
 	cfg := internal.Config{
-		Address: "localhost:8080",
-		BaseURL: "http://localhost:8080",
+		Address:     "localhost:8080",
+		GRPCAddress: "localhost:3200",
+		BaseURL:     "http://localhost:8080",
 	}
 
 	appName := os.Args[0]
@@ -55,10 +60,12 @@ func Start() {
 	var secretFilePath string
 	flags := flag.NewFlagSet(appName, flag.ContinueOnError)
 	flags.StringVar(&cfg.Address, "a", cfg.Address, "address to listen on")
+	flags.StringVar(&cfg.GRPCAddress, "ga", cfg.GRPCAddress, "address to listen on for gRPC server")
 	flags.StringVar(&cfg.BaseURL, "b", cfg.BaseURL, "base address for short URL")
 	flags.StringVar(&cfg.FileStoragePath, "f", cfg.FileStoragePath, "file storage path")
 	flags.StringVar(&cfg.DatabaseDSN, "d", cfg.DatabaseDSN, "database connection string")
 	flags.BoolVar(&cfg.EnableHTTPS, "s", cfg.EnableHTTPS, "enable https")
+	flags.BoolVar(&cfg.GRPCEnableTLS, "gs", cfg.GRPCEnableTLS, "enable TLS for gRPC server")
 	flags.StringVar(&cfg.TrustedSubnetStr, "t", cfg.TrustedSubnetStr, "trusted subnet for getting stats")
 	flags.StringVar(&secretFilePath, "p", "", "path to file with secret")
 	flags.StringVar(&pprofAddress, "pprof", "localhost:6060", "address to export pprof on")
@@ -94,21 +101,83 @@ func Start() {
 		log.Fatal("Error while reading secret key", err)
 	}
 
+	signer := service.Signer{SecretKey: secretKey}
+	urlService := service.URLService{Store: store, Signer: signer}
+	deleteWorker := service.NewDeleteWorker(store)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-
-	signer := handlers.Signer{SecretKey: secretKey}
-	urlService := service.URLService{Store: store}
-	deleteWorker := service.NewDeleteWorker(store)
 	go deleteWorker.Run(ctx)
-	r := handlers.NewRouter(store, cfg, signer, urlService, deleteWorker)
+	grp, ctx := errgroup.WithContext(ctx)
+	grp.Go(func() error {
+		return startHTTPServer(ctx, store, cfg, urlService, deleteWorker)
+	})
+	grp.Go(func() error {
+		return startGRPCServer(ctx, store, cfg, urlService, deleteWorker)
+	})
+	err = grp.Wait()
+	if err != nil {
+		log.Println(err)
+	}
+}
+
+func startGRPCServer(ctx context.Context, store storage.Storage, cfg internal.Config, urlService service.URLService, deleteWorker *service.DeleteURL) error {
+	listen, err := net.Listen("tcp", cfg.GRPCAddress)
+	if err != nil {
+		log.Println(err)
+		return err
+	}
+	var serverOpts []grpc.ServerOption
+	if cfg.GRPCEnableTLS {
+		log.Println("TLS enabled for gRPC server")
+		cert, err := generateTLSCertificate()
+		if err != nil {
+			log.Println(err)
+			return err
+		}
+		conf := &tls.Config{
+			Certificates: []tls.Certificate{*cert},
+		}
+		tlsCredentials := credentials.NewTLS(conf)
+		serverOpts = []grpc.ServerOption{grpc.Creds(tlsCredentials)}
+	}
+	s := grpc.NewServer(serverOpts...)
+
+	sigint := make(chan os.Signal, 1)
+	connsClosed := make(chan struct{})
+	signal.Notify(sigint, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
+
+	go func() {
+		select {
+		case <-sigint:
+		case <-ctx.Done():
+		}
+		s.GracefulStop()
+		close(connsClosed)
+	}()
+
+	pb.RegisterShortenerServer(s, handlers.NewShortenerServer(store, cfg, urlService, deleteWorker))
+	log.Printf("Started gRPC server on %s\n", cfg.GRPCAddress)
+	if err := s.Serve(listen); err != nil {
+		log.Println(err)
+		return err
+	}
+	<-connsClosed
+	log.Printf("Stopped gRPC server on %s\n", cfg.GRPCAddress)
+	return nil
+}
+
+func startHTTPServer(ctx context.Context, store storage.Storage, cfg internal.Config, urlService service.URLService, deleteWorker *service.DeleteURL) error {
+	r := handlers.NewRouter(store, cfg, urlService, deleteWorker)
 
 	sigint := make(chan os.Signal, 1)
 	connsClosed := make(chan struct{})
 	signal.Notify(sigint, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
 
 	shutdown := func(srv *http.Server) {
-		<-sigint
+		select {
+		case <-sigint:
+		case <-ctx.Done():
+		}
 		if er := srv.Shutdown(context.Background()); er != nil {
 			log.Printf("HTTP server Shutdown: %v", er)
 		}
@@ -118,7 +187,8 @@ func Start() {
 	if cfg.EnableHTTPS {
 		cert, err := generateTLSCertificate()
 		if err != nil {
-			log.Fatal(err)
+			log.Println(err)
+			return err
 		}
 		server := &http.Server{
 			Addr:    cfg.Address,
@@ -130,18 +200,20 @@ func Start() {
 		go shutdown(server)
 		log.Printf("Started TLS server on %s\n", cfg.Address)
 		if err = server.ListenAndServeTLS("", ""); err != http.ErrServerClosed {
-			log.Fatalf("HTTP server ListenAndServeTLS: %v", err)
+			log.Printf("HTTP server ListenAndServeTLS: %v\n", err)
+			return err
 		}
 	} else {
 		server := &http.Server{Addr: cfg.Address, Handler: r}
 		go shutdown(server)
 		log.Printf("Started server on %s\n", cfg.Address)
-		if err = server.ListenAndServe(); err != http.ErrServerClosed {
-			log.Fatalf("HTTP server ListenAndServe: %v", err)
+		if err := server.ListenAndServe(); err != http.ErrServerClosed {
+			log.Printf("HTTP server ListenAndServe: %v\n", err)
 		}
 	}
 	<-connsClosed
 	log.Printf("Stopped server on %s\n", cfg.Address)
+	return nil
 }
 
 func generateTLSCertificate() (*tls.Certificate, error) {
