@@ -10,21 +10,22 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"strconv"
 )
 
 // Router routes http requests.
 type Router struct {
-	store        storage.Storage
-	signer       Signer
-	baseURL      string
-	service      service.Service
-	deleteWorker service.DeleteWorker
+	store         storage.Storage
+	baseURL       string
+	service       service.Service
+	deleteWorker  service.DeleteWorker
+	trustedSubnet *net.IPNet
 }
 
 // NewRouter creates new chi Router and configures it.
-func NewRouter(store storage.Storage, cfg internal.Config, signer Signer, service service.Service, deleteWorker service.DeleteWorker) chi.Router {
+func NewRouter(store storage.Storage, cfg internal.Config, service service.Service, deleteWorker service.DeleteWorker) chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
@@ -33,11 +34,11 @@ func NewRouter(store storage.Storage, cfg internal.Config, signer Signer, servic
 	r.Use(gzipHandle)
 
 	router := &Router{
-		store:        store,
-		signer:       signer,
-		baseURL:      cfg.BaseURL,
-		service:      service,
-		deleteWorker: deleteWorker,
+		store:         store,
+		baseURL:       cfg.BaseURL,
+		service:       service,
+		deleteWorker:  deleteWorker,
+		trustedSubnet: cfg.TrustedSubnet,
 	}
 
 	r.Route("/", func(r chi.Router) {
@@ -48,6 +49,7 @@ func NewRouter(store storage.Storage, cfg internal.Config, signer Signer, servic
 		r.Get("/ping", PingDB(store))
 		r.Post("/api/shorten/batch", router.ShortenBatch)
 		r.Delete("/api/user/urls", router.DeleteBatch)
+		r.Get("/api/internal/stats", router.GetStats)
 	})
 
 	r.NotFound(func(writer http.ResponseWriter, request *http.Request) {
@@ -82,56 +84,32 @@ type CorrIDShortURL struct {
 	ShortURL string `json:"short_url"`
 }
 
-// Handler errors
-var (
-	ErrSignNotValid = errors.New("sign is not valid")
+// Stat contains count of URLs and count of Users
+type Stat struct {
+	URLCount   int `json:"urls"`
+	UsersCount int `json:"users"`
+}
+
+// Consts
+const (
+	IPHeader = "X-Real-IP"
 )
 
 func (r *Router) getIDAndCookie(req *http.Request) (int, *http.Cookie, error) {
 	var userID int
-	var authOK bool
-	var signValue string
+	var sign string
 	var cookie *http.Cookie
 
-	sign, err := req.Cookie("token")
+	token, err := req.Cookie("token")
 	if err == nil {
-		signValue = sign.Value
-		userID, authOK, err = r.signer.CheckSign(signValue)
-		if err != nil {
-			log.Println("Error while checking of sign", err)
-			return 0, nil, err
-		}
+		sign = token.Value
 	}
-	if err != nil || !authOK {
-		userID, err = r.store.AddUser(req.Context())
-		if err != nil {
-			log.Println("Error while adding user", err)
-			return 0, nil, err
-		}
-		signValue, err = r.signer.CreateSign(userID)
-		if err != nil {
-			log.Println("Error while creating of sign", err)
-			return 0, nil, err
-		}
-		cookie = &http.Cookie{Name: "token", Value: signValue, MaxAge: 0}
+	userID, sign, err = r.service.GetUserIDOrCreate(req.Context(), sign)
+	if err != nil {
+		return 0, nil, err
 	}
+	cookie = &http.Cookie{Name: "token", Value: sign, MaxAge: 0}
 	return userID, cookie, nil
-}
-
-func (r *Router) getID(req *http.Request) (int, error) {
-	sign, err := req.Cookie("token")
-	if err != nil {
-		return 0, err
-	}
-	userID, authOK, err := r.signer.CheckSign(sign.Value)
-	if err != nil {
-		log.Println("Error while checking of sign", err)
-		return 0, err
-	}
-	if !authOK {
-		return 0, ErrSignNotValid
-	}
-	return userID, nil
 }
 
 // Shorten receives JSON with URL and returns status 201 and shortened URL.
@@ -265,7 +243,12 @@ func (r *Router) GetURLByID(writer http.ResponseWriter, req *http.Request) {
 // GetUserUrls returns the list of shortened and original URLs for the user.
 // Returns status 204 if there is no data for the user.
 func (r *Router) GetUserUrls(writer http.ResponseWriter, req *http.Request) {
-	userID, err := r.getID(req)
+	sign, err := req.Cookie("token")
+	if err != nil {
+		writer.WriteHeader(http.StatusNoContent)
+		return
+	}
+	userID, err := r.service.GetUserID(sign.Value)
 	if err != nil {
 		writer.WriteHeader(http.StatusNoContent)
 		return
@@ -324,7 +307,12 @@ func (r *Router) DeleteBatch(writer http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	userID, err := r.getID(req)
+	sign, err := req.Cookie("token")
+	if err != nil {
+		writer.WriteHeader(http.StatusNoContent)
+		return
+	}
+	userID, err := r.service.GetUserID(sign.Value)
 	if err != nil {
 		http.Error(writer, err.Error(), http.StatusBadRequest)
 		return
@@ -342,4 +330,27 @@ func (r *Router) DeleteBatch(writer http.ResponseWriter, req *http.Request) {
 	}
 	r.deleteWorker.Delete(idsToDelete)
 	writer.WriteHeader(http.StatusAccepted)
+}
+
+// GetStats returns statistics
+func (r *Router) GetStats(writer http.ResponseWriter, req *http.Request) {
+	if r.trustedSubnet == nil {
+		http.Error(writer, "Forbidden", http.StatusForbidden)
+		return
+	}
+	ip := net.ParseIP(req.Header.Get(IPHeader))
+	if !r.trustedSubnet.Contains(ip) {
+		http.Error(writer, "Forbidden", http.StatusForbidden)
+		return
+	}
+	urls, users, err := r.store.GetStat(req.Context())
+	if err != nil {
+		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	stat := Stat{
+		URLCount:   urls,
+		UsersCount: users,
+	}
+	marshalResponseAndSetCookie(writer, http.StatusOK, nil, stat)
 }

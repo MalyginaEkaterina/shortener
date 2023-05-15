@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -61,8 +62,9 @@ func TestGetUrlById(t *testing.T) {
 	cfg := internal.Config{Address: ":8080", BaseURL: "http://localhost:8080"}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := NewRouter(tt.store, cfg, Signer{SecretKey: []byte("secret again")},
-				service.URLService{Store: tt.store}, service.NewDeleteWorker(tt.store))
+			r := NewRouter(tt.store, cfg,
+				service.URLService{Store: tt.store, Signer: service.Signer{SecretKey: []byte("secret again")}},
+				service.NewDeleteWorker(tt.store))
 			ts := httptest.NewServer(r)
 			defer ts.Close()
 
@@ -118,8 +120,9 @@ func TestShortUrl(t *testing.T) {
 	cfg := internal.Config{Address: ":8080", BaseURL: "http://localhost:8080"}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := NewRouter(tt.store, cfg, Signer{SecretKey: []byte("sikrit")},
-				service.URLService{Store: tt.store}, service.NewDeleteWorker(tt.store))
+			r := NewRouter(tt.store, cfg,
+				service.URLService{Store: tt.store, Signer: service.Signer{SecretKey: []byte("sikrit")}},
+				service.NewDeleteWorker(tt.store))
 			ts := httptest.NewServer(r)
 			defer ts.Close()
 
@@ -177,8 +180,9 @@ func TestShorten(t *testing.T) {
 	cfg := internal.Config{Address: ":8080", BaseURL: "http://localhost:8080"}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := NewRouter(tt.store, cfg, Signer{SecretKey: []byte("secret")},
-				service.URLService{Store: tt.store}, service.NewDeleteWorker(tt.store))
+			r := NewRouter(tt.store, cfg,
+				service.URLService{Store: tt.store, Signer: service.Signer{SecretKey: []byte("secret")}},
+				service.NewDeleteWorker(tt.store))
 			ts := httptest.NewServer(r)
 			defer ts.Close()
 
@@ -205,7 +209,7 @@ func TestGetUserUrls(t *testing.T) {
 		statusCode int
 		resp       []ShortOriginalURL
 	}
-	signer := Signer{SecretKey: []byte("another secret key")}
+	signer := service.Signer{SecretKey: []byte("another secret key")}
 	token, err := signer.CreateSign(8)
 	require.NoError(t, err)
 	tests := []struct {
@@ -240,7 +244,7 @@ func TestGetUserUrls(t *testing.T) {
 	cfg := internal.Config{Address: ":8080", BaseURL: "http://localhost:8080"}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := NewRouter(tt.store, cfg, signer, service.URLService{Store: tt.store}, service.NewDeleteWorker(tt.store))
+			r := NewRouter(tt.store, cfg, service.URLService{Store: tt.store, Signer: signer}, service.NewDeleteWorker(tt.store))
 			ts := httptest.NewServer(r)
 			defer ts.Close()
 
@@ -305,8 +309,9 @@ func TestShortenBatch(t *testing.T) {
 	cfg := internal.Config{Address: ":8080", BaseURL: "http://localhost:8080"}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := NewRouter(tt.store, cfg, Signer{SecretKey: []byte("my secret key")},
-				service.URLService{Store: tt.store}, service.NewDeleteWorker(tt.store))
+			r := NewRouter(tt.store, cfg,
+				service.URLService{Store: tt.store, Signer: service.Signer{SecretKey: []byte("my secret key")}},
+				service.NewDeleteWorker(tt.store))
 			ts := httptest.NewServer(r)
 			defer ts.Close()
 
@@ -328,6 +333,65 @@ func TestShortenBatch(t *testing.T) {
 
 }
 
+func TestGetStats(t *testing.T) {
+	type want struct {
+		statusCode int
+	}
+	tests := []struct {
+		name          string
+		store         storage.Storage
+		trustedSubnet string
+		ip            string
+		want          want
+	}{
+		{
+			name:          "Positive test",
+			store:         &mockStorage{},
+			trustedSubnet: "192.0.0.0/24",
+			ip:            "192.0.0.2",
+			want:          want{200},
+		},
+		{
+			name:          "Negative test with empty subnet",
+			store:         &mockStorage{},
+			trustedSubnet: "",
+			ip:            "192.0.0.2",
+			want:          want{403},
+		},
+		{
+			name:          "Negative test with forbidden ip",
+			store:         &mockStorage{},
+			trustedSubnet: "192.0.0.0/24",
+			ip:            "193.0.0.2",
+			want:          want{403},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var subnet *net.IPNet
+			if tt.trustedSubnet != "" {
+				var err error
+				_, subnet, err = net.ParseCIDR(tt.trustedSubnet)
+				assert.NoError(t, err)
+			}
+			cfg := internal.Config{Address: ":8080", BaseURL: "http://localhost:8080", TrustedSubnet: subnet}
+			r := NewRouter(tt.store, cfg,
+				service.URLService{Store: tt.store, Signer: service.Signer{SecretKey: []byte("secret again")}},
+				service.NewDeleteWorker(tt.store))
+			ts := httptest.NewServer(r)
+			defer ts.Close()
+
+			request := httptest.NewRequest(http.MethodGet, ts.URL+"/api/internal/stats", nil)
+			request.Header.Add(IPHeader, tt.ip)
+			resp := httptest.NewRecorder()
+			r.ServeHTTP(resp, request)
+
+			assert.Equal(t, tt.want.statusCode, resp.Code)
+		})
+	}
+
+}
+
 type mockStorage struct {
 	addURL        int
 	addURLErr     error
@@ -338,6 +402,10 @@ type mockStorage struct {
 	userUrlsEmpty bool
 	addBatch      []internal.CorrIDUrlID
 	addBatchErr   error
+}
+
+func (s *mockStorage) GetStat(_ context.Context) (urls, users int, err error) {
+	return 0, 0, nil
 }
 
 func (s *mockStorage) DeleteBatch(_ context.Context, _ []internal.IDToDelete) error {
